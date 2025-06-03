@@ -24,9 +24,6 @@ options:
       - "small"
       - "medium"
       - "large"
-  MACHINE_IMAGE:
-    description: "Base Docker image for the machine infrastructure (DevPod will create development containers inside this)"
-    default: "ubuntu:22.04"
   AGENT_PATH:
     description: "The path where to inject the DevPod agent to"
     default: "/opt/devpod/agent"
@@ -141,7 +138,7 @@ exec:
     DOCKER_DATA=$(cat <<EOF
     {
       "applicationId": "${APP_ID}",
-      "dockerImage": "${MACHINE_IMAGE}"
+      "dockerImage": "alpine:latest"
     }
     EOF
     )
@@ -182,15 +179,11 @@ exec:
 
     echo "✓ Environment variables configured"
 
-    # Update application with command and other settings
-    echo "Updating application settings..."
-    UPDATE_DATA=$(cat <<EOF
-    {
-      "applicationId": "${APP_ID}",
-      "command": "sleep infinity"
-    }
-    EOF
-    )
+    # Update application with SSH setup command
+    echo "Configuring application for SSH access..."
+
+    # Use a robust SSH setup that ensures daemon starts and stays running
+    UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'apk add --no-cache openssh-server sudo bash && adduser -D -s /bin/bash devpod && echo devpod:devpod | chpasswd && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && ssh-keygen -A && echo \\\"PermitRootLogin yes\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && mkdir -p /run/sshd && echo \\\"SSH setup complete, starting daemon...\\\" && exec /usr/sbin/sshd -D -e'\"}"
 
     UPDATE_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.update" \
       -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
@@ -198,15 +191,15 @@ exec:
       -d "$UPDATE_DATA")
 
     if [ $? -ne 0 ]; then
-      echo "Error: Failed to update application settings"
+      echo "Error: Failed to update application with SSH setup"
       echo "Response: $UPDATE_RESPONSE"
       exit 1
     fi
 
-    echo "✓ Application settings updated"
+    echo "✓ Application configured with SSH setup command"
 
-    # Deploy the application
-    echo "Deploying application..."
+    # Deploy the application with SSH configuration
+    echo "Deploying application with SSH configuration..."
     DEPLOY_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
       -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
@@ -218,7 +211,7 @@ exec:
       exit 1
     fi
 
-    echo "✓ Deployment started"
+    echo "✓ Deployment started with SSH configuration"
 
     # Wait for deployment to complete
     echo "Waiting for deployment to complete..."
@@ -238,38 +231,379 @@ exec:
       sleep 5
     done
 
-    # Get container details and setup SSH
-    echo "Setting up SSH access..."
+    # Automatically configure SSH port mapping via API
+    echo "Configuring SSH port mapping via Dokploy API..."
 
-    # Install SSH server in the container
-    CONTAINER_ID=$(docker ps --filter "label=com.docker.compose.service=${MACHINE_ID}" --format "{{.ID}}" | head -n1)
-    if [ -z "$CONTAINER_ID" ]; then
-      echo "Error: Could not find running container"
+    # Simple approach: try ports one by one until we find one that works
+    # Note: Dokploy API doesn't have a port.all endpoint to check existing ports,
+    # so we rely on the port.create API to return errors for conflicts
+    SSH_HOST_PORT=""
+    PORT_CREATED=false
+    echo "Searching for available SSH port (trying ports 2222-2230)..."
+    echo "DEBUG: Starting port allocation loop..."
+
+    for port in 2222 2223 2224 2225 2226 2227 2228 2229 2230; do
+      echo "DEBUG: === Trying port $port ==="
+      echo "DEBUG: PORT_CREATED status before attempt: $PORT_CREATED"
+      
+      # Check if we already created a port (safety check)
+      if [ "$PORT_CREATED" = "true" ]; then
+        echo "DEBUG: Port already created, breaking out of loop"
+        break
+      fi
+      
+      echo "Trying port $port..."
+      
+      # Try to create the port mapping
+      PORT_DATA="{\"publishedPort\": $port, \"targetPort\": 22, \"protocol\": \"tcp\", \"applicationId\": \"$APP_ID\"}"
+      echo "DEBUG: Sending API request for port $port..."
+      echo "DEBUG: Request data: $PORT_DATA"
+      
+      PORT_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "${DOKPLOY_SERVER_URL}/api/port.create" \
+        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "$PORT_DATA")
+      
+      # Extract HTTP status and response body
+      HTTP_STATUS=$(echo "$PORT_RESPONSE" | grep -o "HTTPSTATUS:[0-9]*" | cut -d: -f2)
+      RESPONSE_BODY=$(echo "$PORT_RESPONSE" | sed 's/HTTPSTATUS:[0-9]*$//')
+      
+      echo "DEBUG: HTTP Status: $HTTP_STATUS"
+      echo "DEBUG: Response Body: $RESPONSE_BODY"
+      
+      # Check if the API call was successful (HTTP 200/201)
+      if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "201" ]; then
+        echo "DEBUG: API call succeeded, checking response..."
+        echo "DEBUG: Full response body: '$RESPONSE_BODY'"
+        
+        # Check if response is an error object (even with 200 status)
+        ERROR_MESSAGE=$(echo "$RESPONSE_BODY" | jq -r '.message // empty' 2>/dev/null)
+        ERROR_CODE=$(echo "$RESPONSE_BODY" | jq -r '.code // empty' 2>/dev/null)
+        HAS_ISSUES=$(echo "$RESPONSE_BODY" | jq -r '.issues // empty' 2>/dev/null)
+        
+        echo "DEBUG: Parsed error_message: '$ERROR_MESSAGE'"
+        echo "DEBUG: Parsed error_code: '$ERROR_CODE'"
+        echo "DEBUG: Parsed issues: '$HAS_ISSUES'"
+        
+        # If we have error message/code/issues, this is an error response
+        if [ -n "$ERROR_MESSAGE" ] && [ "$ERROR_MESSAGE" != "empty" ] && [ "$ERROR_MESSAGE" != "null" ]; then
+          echo "   Port $port failed: $ERROR_MESSAGE"
+          if [ -n "$ERROR_CODE" ] && [ "$ERROR_CODE" != "empty" ]; then
+            echo "   Error code: $ERROR_CODE"
+          fi
+          if [ -n "$HAS_ISSUES" ] && [ "$HAS_ISSUES" != "empty" ] && [ "$HAS_ISSUES" != "null" ]; then
+            echo "   Issues: $HAS_ISSUES"
+          fi
+          echo "DEBUG: Port creation failed due to API error, continuing to next port..."
+        # Check if we got a simple success response (boolean true)
+        elif [ "$RESPONSE_BODY" = "true" ]; then
+          # Success! We created the port mapping
+          SSH_HOST_PORT=$port
+          PORT_CREATED=true
+          echo "✅ Port $port is available and mapping created successfully!"
+          echo "   Response: $RESPONSE_BODY"
+          echo "   Mapping: $port (host) → 22 (container)"
+          echo "DEBUG: Setting PORT_CREATED=true and breaking..."
+          break
+        else
+          # Check if we got a port object with ID (alternative success format)
+          PORT_ID=$(echo "$RESPONSE_BODY" | jq -r '.portId // .id // empty' 2>/dev/null)
+          echo "DEBUG: Extracted port ID: '$PORT_ID'"
+          
+          if [ -n "$PORT_ID" ] && [ "$PORT_ID" != "null" ] && [ "$PORT_ID" != "empty" ]; then
+            # Success! We created the port mapping
+            SSH_HOST_PORT=$port
+            PORT_CREATED=true
+            echo "✅ Port $port is available and mapping created successfully!"
+            echo "   Port ID: $PORT_ID"
+            echo "   Mapping: $port (host) → 22 (container)"
+            echo "DEBUG: Setting PORT_CREATED=true and breaking..."
+            break
+          else
+            # Unknown response format
+            echo "   Port $port failed: Unknown response format"
+            echo "   Response: $RESPONSE_BODY"
+            echo "DEBUG: Unknown response format, continuing to next port..."
+          fi
+        fi
+      else
+        # HTTP error - extract error message from Dokploy API response format
+        ERROR_MSG=$(echo "$RESPONSE_BODY" | jq -r '.message // "HTTP error"' 2>/dev/null)
+        ERROR_CODE=$(echo "$RESPONSE_BODY" | jq -r '.code // ""' 2>/dev/null)
+        
+        if [ -n "$ERROR_CODE" ]; then
+          echo "   Port $port failed (HTTP $HTTP_STATUS): $ERROR_MSG (Code: $ERROR_CODE)"
+        else
+          echo "   Port $port failed (HTTP $HTTP_STATUS): $ERROR_MSG"
+        fi
+        echo "DEBUG: HTTP error, continuing to next port..."
+      fi
+      
+      echo "DEBUG: End of iteration for port $port"
+      echo "DEBUG: PORT_CREATED status after attempt: $PORT_CREATED"
+    done
+
+    echo "DEBUG: Exited port allocation loop"
+    echo "DEBUG: Final PORT_CREATED status: $PORT_CREATED"
+    echo "DEBUG: Final SSH_HOST_PORT: $SSH_HOST_PORT"
+
+    # Check if we successfully created a port mapping
+    if [ "$PORT_CREATED" = "true" ] && [ -n "$SSH_HOST_PORT" ]; then
+      echo ""
+      echo "🎉 SSH port mapping configured successfully!"
+      echo "   Using port: $SSH_HOST_PORT"
+      echo "DEBUG: Proceeding with redeployment..."
+      
+      # Redeploy to apply the port mapping
+      echo "Redeploying application to apply port mapping..."
+      curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
+        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"applicationId\": \"$APP_ID\"}" >/dev/null
+
+      # Wait for redeployment
+      echo "Waiting for redeployment to complete..."
+      for i in $(seq 1 30); do
+        STATUS=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=$APP_ID" \
+          -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
+        
+        if [ "$STATUS" = "done" ]; then
+          echo "✓ Redeployment completed successfully"
+          break
+        elif [ "$STATUS" = "error" ]; then
+          echo "⚠️  Redeployment failed, but continuing..."
+          break
+        fi
+        
+        echo "   Redeployment status: $STATUS (attempt $i/30)"
+        sleep 5
+      done
+    else
+      echo ""
+      echo "❌ CRITICAL ERROR: Could not configure SSH port mapping"
+      echo "   All ports in range 2222-2230 are in use or unavailable."
+      echo ""
+      echo "This is a critical failure because SSH access is required for DevPod to function."
+      echo "Please manually free up a port in the range 2222-2230 and try again."
+      echo ""
+      echo "To debug this issue:"
+      echo "1. Check your Dokploy dashboard: $DOKPLOY_SERVER_URL"
+      echo "2. Look for existing port mappings in other applications"
+      echo "3. Delete unused applications or port mappings"
+      echo "4. Try creating the workspace again"
+      echo ""
+      echo "Failing workspace creation due to inability to configure SSH access."
       exit 1
     fi
 
-    # Install SSH server and create devpod user
-    docker exec "$CONTAINER_ID" sh -c "
-      apt-get update && apt-get install -y openssh-server sudo
-      useradd -m -s /bin/bash devpod
-      echo 'devpod:devpod' | chpasswd
-      echo 'devpod ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-      mkdir -p /home/devpod/.ssh
-      service ssh start
-      systemctl enable ssh
-    "
+    # Extract server information for SSH connection
+    DOKPLOY_HOST="${DOKPLOY_SERVER_URL#*://}"
+    DOKPLOY_HOST="${DOKPLOY_HOST%%/*}"  # Remove path if present
+    DOKPLOY_HOST="${DOKPLOY_HOST%%:*}"  # Remove port if present
 
-    # Get the SSH port (assuming port mapping)
-    SSH_PORT=$(docker port "$CONTAINER_ID" 22 | cut -d: -f2)
-    if [ -z "$SSH_PORT" ]; then
-      SSH_PORT="22"
+    SSH_HOST="$DOKPLOY_HOST"
+    SSH_PORT="$SSH_HOST_PORT"
+
+    echo ""
+    echo "SSH connection details:"
+    echo "Host: $SSH_HOST"
+    echo "Port: $SSH_PORT"
+    echo "User: devpod"
+    echo ""
+
+    if [ "$SSH_HOST_PORT" != "22" ]; then
+      echo "✅ SSH port mapping configured automatically!"
+      echo "SSH access should be available on port $SSH_HOST_PORT"
+    else
+      echo "⚠️  Manual SSH port configuration required:"
+      echo "1. Open Dokploy dashboard: $DOKPLOY_SERVER_URL"
+      echo "2. Navigate to your application: $APP_ID"
+      echo "3. Go to Advanced > Ports"
+      echo "4. Add port mapping: Container Port 22 -> Host Port 2222"
+      echo "5. Redeploy the application"
+    fi
+    echo ""
+
+    # Test SSH connection with retries
+    echo "Testing SSH connection to $SSH_HOST:$SSH_PORT..."
+    echo "DEBUG: Starting SSH connection diagnostics..."
+    echo "DEBUG: SSH_HOST='$SSH_HOST'"
+    echo "DEBUG: SSH_PORT='$SSH_PORT'"
+    echo "DEBUG: SSH_USER='devpod'"
+
+    SSH_SUCCESS=false
+
+    # Wait longer for port mapping and SSH daemon to be fully ready
+    echo "Waiting for SSH daemon and port mapping to be fully active..."
+    echo ""
+    echo "ℹ️  NOTICE: Docker Swarm Port Mapping Delay"
+    echo "   Dokploy uses Docker Swarm for container orchestration, which requires"
+    echo "   time for port mappings to propagate across the cluster. This 60+ second"
+    echo "   delay is normal and expected behavior, not a provider issue."
+    echo ""
+    echo "   • Port mapping API: ✅ Completed successfully"
+    echo "   • Port propagation: ⏳ In progress (60-120 seconds typical)"
+    echo "   • SSH accessibility: ⏳ Will be available after propagation"
+    echo ""
+    echo "DEBUG: Sleeping for 60 seconds to allow Dokploy port mapping to propagate..."
+    sleep 60
+
+    # Pre-connection diagnostics
+    echo "DEBUG: Running pre-connection diagnostics..."
+
+    # Test basic network connectivity to the host
+    echo "DEBUG: Testing basic network connectivity to $SSH_HOST..."
+    if ping -c 1 -W 3 "$SSH_HOST" >/dev/null 2>&1; then
+      echo "DEBUG: ✓ Host $SSH_HOST is reachable via ping"
+    else
+      echo "DEBUG: ⚠️  Host $SSH_HOST is not responding to ping (may be normal if ICMP is blocked)"
+    fi
+
+    # Test if the port is open using netcat/telnet with longer wait
+    echo "DEBUG: Testing if port $SSH_PORT is open on $SSH_HOST..."
+    PORT_ACCESSIBLE=false
+
+    # Try multiple times with increasing delays for port to become accessible
+    for attempt in 1 2 3 4 5; do
+      echo "DEBUG: Port accessibility test attempt $attempt/5..."
+      
+      if command -v nc >/dev/null 2>&1; then
+        if nc -z -w 10 "$SSH_HOST" "$SSH_PORT" 2>/dev/null; then
+          echo "DEBUG: ✓ Port $SSH_PORT is open and accepting connections"
+          PORT_ACCESSIBLE=true
+          break
+        else
+          echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $attempt"
+        fi
+      elif command -v telnet >/dev/null 2>&1; then
+        if echo "" | telnet "$SSH_HOST" "$SSH_PORT" 2>/dev/null | grep -q "Connected"; then
+          echo "DEBUG: ✓ Port $SSH_PORT is open and accepting connections"
+          PORT_ACCESSIBLE=true
+          break
+        else
+          echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $attempt"
+        fi
+      else
+        echo "DEBUG: ⚠️  No netcat or telnet available for port testing"
+        break
+      fi
+      
+      if [ $attempt -lt 5 ]; then
+        echo "DEBUG: Waiting 30 seconds before next port test..."
+        sleep 30
+      fi
+    done
+
+    if [ "$PORT_ACCESSIBLE" = "false" ]; then
+      echo "DEBUG: ⚠️  Port $SSH_PORT is still not accessible after 5 attempts"
+      echo "DEBUG: This may indicate Dokploy port mapping is not working correctly"
+    fi
+
+    # Check if SSH service is responding (without authentication) - remove timeout dependency
+    echo "DEBUG: Testing SSH service response..."
+    SSH_BANNER=$(ssh -o StrictHostKeyChecking=no \
+                     -o UserKnownHostsFile=/dev/null \
+                     -o ConnectTimeout=10 \
+                     -o BatchMode=yes \
+                     -o PreferredAuthentications=none \
+                     -p "$SSH_PORT" "test@$SSH_HOST" 2>&1 | head -5)
+    echo "DEBUG: SSH banner/response: $SSH_BANNER"
+
+    for i in $(seq 1 3); do
+      echo "DEBUG: === SSH connection attempt $i/3 ==="
+      echo "SSH connection attempt $i/3..."
+      
+      # Detailed SSH command for debugging (remove timeout dependency)
+      SSH_CMD="ssh -o StrictHostKeyChecking=no \
+                  -o UserKnownHostsFile=/dev/null \
+                  -o ConnectTimeout=10 \
+                  -o ServerAliveInterval=5 \
+                  -o ServerAliveCountMax=3 \
+                  -o BatchMode=yes \
+                  -p \"$SSH_PORT\" \"devpod@$SSH_HOST\" \"echo 'SSH connection successful'\""
+      
+      echo "DEBUG: Running SSH command: $SSH_CMD"
+      echo "DEBUG: SSH attempt started at $(date)"
+      
+      # Run SSH with detailed error output (remove timeout command)
+      SSH_OUTPUT=$(ssh -o StrictHostKeyChecking=no \
+                      -o UserKnownHostsFile=/dev/null \
+                      -o ConnectTimeout=10 \
+                      -o ServerAliveInterval=5 \
+                      -o ServerAliveCountMax=3 \
+                      -o BatchMode=yes \
+                      -v \
+                      -p "$SSH_PORT" "devpod@$SSH_HOST" "echo 'SSH connection successful'" 2>&1)
+      SSH_EXIT_CODE=$?
+      
+      echo "DEBUG: SSH attempt finished at $(date)"
+      echo "DEBUG: SSH exit code: $SSH_EXIT_CODE"
+      echo "DEBUG: SSH output (first 10 lines):"
+      echo "$SSH_OUTPUT" | head -10 | sed 's/^/DEBUG: /'
+      
+      if [ $SSH_EXIT_CODE -eq 0 ]; then
+        echo "✅ SSH connection test successful!"
+        echo "DEBUG: SSH connection established successfully"
+        SSH_SUCCESS=true
+        break
+      else
+        echo "SSH connection attempt $i/3 failed (exit code: $SSH_EXIT_CODE)"
+        
+        # Analyze common SSH failure patterns
+        if echo "$SSH_OUTPUT" | grep -q "Connection refused"; then
+          echo "DEBUG: Connection refused - SSH daemon may not be running or port not mapped"
+        elif echo "$SSH_OUTPUT" | grep -q "Connection timed out"; then
+          echo "DEBUG: Connection timed out - network/firewall issue or wrong port"
+        elif echo "$SSH_OUTPUT" | grep -q "No route to host"; then
+          echo "DEBUG: No route to host - network connectivity issue"
+        elif echo "$SSH_OUTPUT" | grep -q "Permission denied"; then
+          echo "DEBUG: Permission denied - authentication issue (user/password/keys)"
+        elif echo "$SSH_OUTPUT" | grep -q "Host key verification failed"; then
+          echo "DEBUG: Host key verification failed - SSH host key issue"
+        else
+          echo "DEBUG: Unknown SSH error - see output above"
+        fi
+        
+        if [ $i -lt 3 ]; then
+          echo "Waiting 30 seconds before retry..."
+          echo "DEBUG: Sleeping 30 seconds before next attempt..."
+          sleep 30
+        fi
+      fi
+    done
+
+    # Don't fail the entire process if SSH test fails - workspace might still be usable
+    if [ "$SSH_SUCCESS" = "false" ]; then
+      echo "⚠️  SSH connection test failed, but workspace may still be functional"
+      echo "   SSH access should be available shortly on $SSH_HOST:$SSH_PORT"
+      echo "   Try connecting manually in a few minutes if needed"
     fi
 
     # Return connection info to DevPod
     echo "DEVPOD_MACHINE_ID=$APP_ID"
-    echo "DEVPOD_MACHINE_HOST=${DOKPLOY_SERVER_URL#*://}"  # Remove protocol
+    echo "DEVPOD_MACHINE_HOST=$SSH_HOST"
     echo "DEVPOD_MACHINE_PORT=$SSH_PORT"
     echo "DEVPOD_MACHINE_USER=devpod"
+
+    echo ""
+    echo "✅ Dokploy workspace created successfully!"
+
+    if [ "$SSH_SUCCESS" = true ]; then
+      echo "🎉 SSH access is ready and working!"
+    elif [ "$SSH_HOST_PORT" != "22" ]; then
+      echo "⚠️  SSH port mapping configured but connection test failed"
+      echo "The workspace is ready, SSH may need a few more minutes to be accessible"
+    else
+      echo "⚠️  Manual SSH configuration required for full functionality"
+    fi
+
+    echo ""
+    echo "Workspace Details:"
+    echo "- Application ID: $APP_ID"
+    echo "- SSH Host: $SSH_HOST"
+    echo "- SSH Port: $SSH_PORT"
+    echo "- SSH User: devpod"
+    echo "- Dokploy Dashboard: $DOKPLOY_SERVER_URL"
 
   # Delete the machine
   delete: |-

@@ -215,7 +215,6 @@ uninstall: ## Remove the provider from DevPod
 	fi
 	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME)-dev --ignore-not-found 2>/dev/null || true
 	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME) --ignore-not-found 2>/dev/null || true
-	@sleep 2  # Give DevPod time to clean up
 	@echo "$(GREEN)Provider removed$(NC)"
 
 .PHONY: cleanup-workspaces
@@ -237,13 +236,9 @@ cleanup-workspaces: ## Delete all workspaces using this provider
 				echo "$(RED)✗ Failed to delete: $$ws$(NC)"; \
 				echo "$(YELLOW)Trying alternative deletion methods...$(NC)"; \
 				$(DEVPOD_CMD) stop $$ws --force 2>/dev/null || true; \
-				sleep 2; \
 				$(DEVPOD_CMD) delete $$ws --force 2>/dev/null || true; \
 			fi; \
 		done; \
-		echo "$(YELLOW)Waiting for cleanup to complete...$(NC)"; \
-		sleep 3; \
-		echo "$(GREEN)Workspaces cleanup completed$(NC)"; \
 	else \
 		echo "$(GREEN)No workspaces found for this provider$(NC)"; \
 	fi
@@ -262,7 +257,6 @@ force-uninstall: cleanup-workspaces ## Force remove provider and all its workspa
 		echo "$(BLUE)Deleting $(PROVIDER_NAME)...$(NC)"; \
 		$(DEVPOD_CMD) provider delete $(PROVIDER_NAME) --debug || true; \
 	fi
-	@sleep 5  # Give DevPod more time to clean up after workspace deletion
 	@echo "$(BLUE)Current providers after deletion:$(NC)"
 	@$(DEVPOD_CMD) provider list || true
 	@echo "$(GREEN)Provider force removal completed$(NC)"
@@ -281,7 +275,6 @@ reinstall: ## Reinstall the provider locally
 	@echo "$(YELLOW)Removing existing provider...$(NC)"
 	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME)-dev --ignore-not-found 2>/dev/null || true
 	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME) --ignore-not-found 2>/dev/null || true
-	@sleep 3  # Give DevPod time to clean up
 	@echo "$(YELLOW)Installing provider...$(NC)"
 	@$(MAKE) install-local
 
