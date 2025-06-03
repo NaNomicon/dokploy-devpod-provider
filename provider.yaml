@@ -65,37 +65,52 @@ exec:
   create: |-
     echo "Creating Dokploy workspace: ${MACHINE_ID}"
 
-    # Create application in Dokploy
-    # Note: This creates the MACHINE infrastructure (${MACHINE_IMAGE})
-    # DevPod will later create the DEVELOPMENT container inside this machine
+    # Check if project exists, create if it doesn't
+    echo "Checking if project '${DOKPLOY_PROJECT_NAME}' exists..."
+    PROJECT_CHECK=$(curl -s "${DOKPLOY_SERVER_URL}/api/project.all" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r --arg name "${DOKPLOY_PROJECT_NAME}" '.[] | select(.name == $name) | .projectId')
+
+    if [ -z "$PROJECT_CHECK" ]; then
+      echo "Project '${DOKPLOY_PROJECT_NAME}' not found. Creating project..."
+      
+      PROJECT_DATA=$(cat <<EOF
+    {
+      "name": "${DOKPLOY_PROJECT_NAME}",
+      "description": "DevPod workspaces project - automatically created by Dokploy provider"
+    }
+    EOF
+    )
+
+      PROJECT_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/project.create" \
+        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "$PROJECT_DATA")
+
+      if [ $? -ne 0 ]; then
+        echo "Error: Failed to create project in Dokploy"
+        echo "Response: $PROJECT_RESPONSE"
+        exit 1
+      fi
+
+      PROJECT_ID=$(echo "$PROJECT_RESPONSE" | jq -r '.projectId // .id // empty')
+      if [ -z "$PROJECT_ID" ]; then
+        echo "Error: Could not get project ID from response"
+        echo "Response: $PROJECT_RESPONSE"
+        exit 1
+      fi
+
+      echo "✓ Project created successfully with ID: $PROJECT_ID"
+    else
+      echo "✓ Project '${DOKPLOY_PROJECT_NAME}' already exists with ID: $PROJECT_CHECK"
+      PROJECT_ID="$PROJECT_CHECK"
+    fi
+
+    # Create basic application in Dokploy
     APP_DATA=$(cat <<EOF
     {
       "name": "${MACHINE_ID}",
       "description": "DevPod workspace created on $(date)",
-      "projectId": "${DOKPLOY_PROJECT_NAME}",
-      "serverId": "${DOKPLOY_SERVER_ID:-}",
-      "sourceType": "docker",
-      "dockerImage": "${MACHINE_IMAGE}",
-      "command": "sleep infinity",
-      "ports": [
-        {
-          "containerPort": 22,
-          "protocol": "tcp"
-        }
-      ],
-      "env": [
-        {
-          "key": "DEVPOD_WORKSPACE",
-          "value": "true"
-        }
-      ],
-      "mounts": [
-        {
-          "type": "volume",
-          "hostPath": "${MACHINE_ID}-data",
-          "mountPath": "/workspace"
-        }
-      ]
+      "projectId": "${PROJECT_ID}"
     }
     EOF
     )
@@ -108,6 +123,7 @@ exec:
 
     if [ $? -ne 0 ]; then
       echo "Error: Failed to create application in Dokploy"
+      echo "Response: $RESPONSE"
       exit 1
     fi
 
@@ -120,12 +136,89 @@ exec:
 
     echo "✓ Application created with ID: $APP_ID"
 
+    # Configure Docker provider
+    echo "Configuring Docker provider..."
+    DOCKER_DATA=$(cat <<EOF
+    {
+      "applicationId": "${APP_ID}",
+      "dockerImage": "${MACHINE_IMAGE}"
+    }
+    EOF
+    )
+
+    DOCKER_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.saveDockerProvider" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "$DOCKER_DATA")
+
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to configure Docker provider"
+      echo "Response: $DOCKER_RESPONSE"
+      exit 1
+    fi
+
+    echo "✓ Docker provider configured"
+
+    # Configure environment variables
+    echo "Configuring environment variables..."
+    ENV_DATA=$(cat <<EOF
+    {
+      "applicationId": "${APP_ID}",
+      "env": "DEVPOD_WORKSPACE=true"
+    }
+    EOF
+    )
+
+    ENV_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.saveEnvironment" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "$ENV_DATA")
+
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to configure environment variables"
+      echo "Response: $ENV_RESPONSE"
+      exit 1
+    fi
+
+    echo "✓ Environment variables configured"
+
+    # Update application with command and other settings
+    echo "Updating application settings..."
+    UPDATE_DATA=$(cat <<EOF
+    {
+      "applicationId": "${APP_ID}",
+      "command": "sleep infinity"
+    }
+    EOF
+    )
+
+    UPDATE_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.update" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "$UPDATE_DATA")
+
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to update application settings"
+      echo "Response: $UPDATE_RESPONSE"
+      exit 1
+    fi
+
+    echo "✓ Application settings updated"
+
     # Deploy the application
     echo "Deploying application..."
     DEPLOY_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
       -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "{\"applicationId\": \"$APP_ID\"}")
+
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to deploy application"
+      echo "Response: $DEPLOY_RESPONSE"
+      exit 1
+    fi
+
+    echo "✓ Deployment started"
 
     # Wait for deployment to complete
     echo "Waiting for deployment to complete..."

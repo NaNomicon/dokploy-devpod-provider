@@ -170,13 +170,13 @@ devpod provider add https://raw.githubusercontent.com/NaNomicon/dokploy-devpod-p
 
 ### Optional Options
 
-| Option                 | Description                         | Default             |
-| ---------------------- | ----------------------------------- | ------------------- |
-| `DOKPLOY_PROJECT_NAME` | Name of the project in Dokploy      | `devpod-workspaces` |
-| `DOKPLOY_SERVER_ID`    | ID of the server to deploy to       | (uses default)      |
-| `MACHINE_TYPE`         | Machine size (small/medium/large)   | `small`             |
-| `MACHINE_IMAGE`        | Docker image for the machine        | `ubuntu:22.04`      |
-| `AGENT_PATH`           | Path where DevPod agent is injected | `/opt/devpod/agent` |
+| Option                 | Description                                                                        | Default             |
+| ---------------------- | ---------------------------------------------------------------------------------- | ------------------- |
+| `DOKPLOY_PROJECT_NAME` | Name of the project in Dokploy (will be automatically created if it doesn't exist) | `devpod-workspaces` |
+| `DOKPLOY_SERVER_ID`    | ID of the server to deploy to                                                      | (uses default)      |
+| `MACHINE_TYPE`         | Machine size (small/medium/large)                                                  | `small`             |
+| `MACHINE_IMAGE`        | Docker image for the machine                                                       | `ubuntu:22.04`      |
+| `AGENT_PATH`           | Path where DevPod agent is injected                                                | `/opt/devpod/agent` |
 
 ### Quick Configuration
 
@@ -364,11 +364,12 @@ curl -H "Authorization: Bearer ${TOKEN}" "${URL}/api/endpoint"
 ### Machine Provider Workflow
 
 1. **Initialization**: Validates connection to Dokploy server and API token
-2. **Machine Creation**: Creates Dokploy application with machine image
-3. **SSH Setup**: Configures SSH server and creates devpod user
-4. **Connection Details**: Returns SSH connection information to DevPod
-5. **Agent Injection**: DevPod connects via SSH and injects development agent
-6. **Development Environment**: Agent creates development container based on project configuration
+2. **Project Management**: Checks if the specified project exists, creates it automatically if it doesn't
+3. **Machine Creation**: Creates Dokploy application with machine image in the project
+4. **SSH Setup**: Configures SSH server and creates devpod user
+5. **Connection Details**: Returns SSH connection information to DevPod
+6. **Agent Injection**: DevPod connects via SSH and injects development agent
+7. **Development Environment**: Agent creates development container based on project configuration
 
 ### Architecture Flow
 
