@@ -63,14 +63,14 @@ exec:
 
   # Create a new machine/container in Dokploy
   create: |-
-    echo "Creating Dokploy workspace: ${DEVPOD_WORKSPACE_ID}"
+    echo "Creating Dokploy workspace: ${MACHINE_ID}"
 
     # Create application in Dokploy
     # Note: This creates the MACHINE infrastructure (${MACHINE_IMAGE})
     # DevPod will later create the DEVELOPMENT container inside this machine
     APP_DATA=$(cat <<EOF
     {
-      "name": "${DEVPOD_WORKSPACE_ID}",
+      "name": "${MACHINE_ID}",
       "description": "DevPod workspace created on $(date)",
       "projectId": "${DOKPLOY_PROJECT_NAME}",
       "serverId": "${DOKPLOY_SERVER_ID:-}",
@@ -92,7 +92,7 @@ exec:
       "mounts": [
         {
           "type": "volume",
-          "hostPath": "${DEVPOD_WORKSPACE_ID}-data",
+          "hostPath": "${MACHINE_ID}-data",
           "mountPath": "/workspace"
         }
       ]
@@ -149,7 +149,7 @@ exec:
     echo "Setting up SSH access..."
 
     # Install SSH server in the container
-    CONTAINER_ID=$(docker ps --filter "label=com.docker.compose.service=${DEVPOD_WORKSPACE_ID}" --format "{{.ID}}" | head -n1)
+    CONTAINER_ID=$(docker ps --filter "label=com.docker.compose.service=${MACHINE_ID}" --format "{{.ID}}" | head -n1)
     if [ -z "$CONTAINER_ID" ]; then
       echo "Error: Could not find running container"
       exit 1
