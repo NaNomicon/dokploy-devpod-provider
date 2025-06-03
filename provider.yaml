@@ -1,0 +1,270 @@
+name: dokploy
+version: v0.1.0
+description: "Dokploy provider for DevPod - Create and manage development machines via Dokploy"
+icon: https://raw.githubusercontent.com/Dokploy/dokploy/refs/heads/canary/apps/dokploy/logo.png
+
+options:
+  DOKPLOY_SERVER_URL:
+    description: "URL of your Dokploy server (e.g., https://your-dokploy.com)"
+    required: true
+  DOKPLOY_API_TOKEN:
+    description: "API token for Dokploy authentication (generate from Settings > Profile > API/CLI)"
+    required: true
+    password: true
+  DOKPLOY_PROJECT_NAME:
+    description: "Dokploy project name for organizing workspaces"
+    default: "devpod-workspaces"
+  DOKPLOY_SERVER_ID:
+    description: "Dokploy server ID for multi-server deployments (optional)"
+    required: false
+  MACHINE_TYPE:
+    description: "Machine type/size for the workspace"
+    default: "small"
+    enum:
+      - "small"
+      - "medium"
+      - "large"
+  MACHINE_IMAGE:
+    description: "Base Docker image for the machine infrastructure (DevPod will create development containers inside this)"
+    default: "ubuntu:22.04"
+  AGENT_PATH:
+    description: "The path where to inject the DevPod agent to"
+    default: "/opt/devpod/agent"
+
+agent:
+  path: ${AGENT_PATH}
+  driver: docker
+  inactivityTimeout: 10m
+
+exec:
+  # Initialize the provider (test API connection)
+  init: |-
+    echo "Initializing Dokploy provider..."
+
+    # Validate required options
+    if [ -z "${DOKPLOY_SERVER_URL}" ] || [ -z "${DOKPLOY_API_TOKEN}" ]; then
+      echo "Error: DOKPLOY_SERVER_URL and DOKPLOY_API_TOKEN are required"
+      exit 1
+    fi
+
+    # Test connection to Dokploy API
+    echo "Testing Dokploy API connection..."
+    if ! curl -s -f "${DOKPLOY_SERVER_URL}/api/settings.health" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" >/dev/null 2>&1; then
+      echo "Error: Cannot connect to Dokploy server or invalid API token"
+      echo "Please check:"
+      echo "1. Server URL: ${DOKPLOY_SERVER_URL}"
+      echo "2. API token is valid and generated from Settings > Profile > API/CLI"
+      exit 1
+    fi
+    echo "✓ Dokploy API connection successful"
+
+    echo "Dokploy provider initialized successfully"
+
+  # Create a new machine/container in Dokploy
+  create: |-
+    echo "Creating Dokploy workspace: ${DEVPOD_WORKSPACE_ID}"
+
+    # Create application in Dokploy
+    # Note: This creates the MACHINE infrastructure (${MACHINE_IMAGE})
+    # DevPod will later create the DEVELOPMENT container inside this machine
+    APP_DATA=$(cat <<EOF
+    {
+      "name": "${DEVPOD_WORKSPACE_ID}",
+      "description": "DevPod workspace created on $(date)",
+      "projectId": "${DOKPLOY_PROJECT_NAME}",
+      "serverId": "${DOKPLOY_SERVER_ID:-}",
+      "sourceType": "docker",
+      "dockerImage": "${MACHINE_IMAGE}",
+      "command": "sleep infinity",
+      "ports": [
+        {
+          "containerPort": 22,
+          "protocol": "tcp"
+        }
+      ],
+      "env": [
+        {
+          "key": "DEVPOD_WORKSPACE",
+          "value": "true"
+        }
+      ],
+      "mounts": [
+        {
+          "type": "volume",
+          "hostPath": "${DEVPOD_WORKSPACE_ID}-data",
+          "mountPath": "/workspace"
+        }
+      ]
+    }
+    EOF
+    )
+
+    # Create the application
+    RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.create" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "$APP_DATA")
+
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to create application in Dokploy"
+      exit 1
+    fi
+
+    APP_ID=$(echo "$RESPONSE" | jq -r '.applicationId // .id // empty')
+    if [ -z "$APP_ID" ]; then
+      echo "Error: Could not get application ID from response"
+      echo "Response: $RESPONSE"
+      exit 1
+    fi
+
+    echo "✓ Application created with ID: $APP_ID"
+
+    # Deploy the application
+    echo "Deploying application..."
+    DEPLOY_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"applicationId\": \"$APP_ID\"}")
+
+    # Wait for deployment to complete
+    echo "Waiting for deployment to complete..."
+    for i in $(seq 1 60); do
+      STATUS=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=$APP_ID" \
+        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
+      
+      if [ "$STATUS" = "done" ]; then
+        echo "✓ Deployment completed successfully"
+        break
+      elif [ "$STATUS" = "error" ]; then
+        echo "Error: Deployment failed"
+        exit 1
+      fi
+      
+      echo "Deployment status: $STATUS (attempt $i/60)"
+      sleep 5
+    done
+
+    # Get container details and setup SSH
+    echo "Setting up SSH access..."
+
+    # Install SSH server in the container
+    CONTAINER_ID=$(docker ps --filter "label=com.docker.compose.service=${DEVPOD_WORKSPACE_ID}" --format "{{.ID}}" | head -n1)
+    if [ -z "$CONTAINER_ID" ]; then
+      echo "Error: Could not find running container"
+      exit 1
+    fi
+
+    # Install SSH server and create devpod user
+    docker exec "$CONTAINER_ID" sh -c "
+      apt-get update && apt-get install -y openssh-server sudo
+      useradd -m -s /bin/bash devpod
+      echo 'devpod:devpod' | chpasswd
+      echo 'devpod ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+      mkdir -p /home/devpod/.ssh
+      service ssh start
+      systemctl enable ssh
+    "
+
+    # Get the SSH port (assuming port mapping)
+    SSH_PORT=$(docker port "$CONTAINER_ID" 22 | cut -d: -f2)
+    if [ -z "$SSH_PORT" ]; then
+      SSH_PORT="22"
+    fi
+
+    # Return connection info to DevPod
+    echo "DEVPOD_MACHINE_ID=$APP_ID"
+    echo "DEVPOD_MACHINE_HOST=${DOKPLOY_SERVER_URL#*://}"  # Remove protocol
+    echo "DEVPOD_MACHINE_PORT=$SSH_PORT"
+    echo "DEVPOD_MACHINE_USER=devpod"
+
+  # Delete the machine
+  delete: |-
+    echo "Deleting Dokploy workspace: ${DEVPOD_MACHINE_ID}"
+
+    if [ -z "${DEVPOD_MACHINE_ID}" ]; then
+      echo "Error: No machine ID provided"
+      exit 1
+    fi
+
+    # Delete the application
+    curl -s -X DELETE "${DOKPLOY_SERVER_URL}/api/application.remove" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"applicationId\": \"${DEVPOD_MACHINE_ID}\"}"
+
+    echo "✓ Dokploy workspace deleted"
+
+  # Start a stopped machine
+  start: |-
+    echo "Starting Dokploy workspace: ${DEVPOD_MACHINE_ID}"
+
+    if [ -z "${DEVPOD_MACHINE_ID}" ]; then
+      echo "Error: No machine ID provided"
+      exit 1
+    fi
+
+    # Start the application
+    curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.start" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"applicationId\": \"${DEVPOD_MACHINE_ID}\"}"
+
+    echo "✓ Dokploy workspace started"
+
+  # Stop the machine
+  stop: |-
+    echo "Stopping Dokploy workspace: ${DEVPOD_MACHINE_ID}"
+
+    if [ -z "${DEVPOD_MACHINE_ID}" ]; then
+      echo "Error: No machine ID provided"
+      exit 1
+    fi
+
+    # Stop the application
+    curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.stop" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "Content-Type: application/json" \
+      -d "{\"applicationId\": \"${DEVPOD_MACHINE_ID}\"}"
+
+    echo "✓ Dokploy workspace stopped"
+
+  # Get machine status
+  status: |-
+    if [ -z "${DEVPOD_MACHINE_ID}" ]; then
+      echo "NotFound"
+      exit 0
+    fi
+
+    # Get application status
+    STATUS=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${DEVPOD_MACHINE_ID}" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
+
+    case "$STATUS" in
+      "done"|"running")
+        echo "Running"
+        ;;
+      "building"|"deploying")
+        echo "Busy"
+        ;;
+      "stopped"|"exited")
+        echo "Stopped"
+        ;;
+      *)
+        echo "NotFound"
+        ;;
+    esac
+
+  # Execute commands via SSH
+  command: |-
+    if [ -z "${DEVPOD_MACHINE_HOST}" ] || [ -z "${DEVPOD_MACHINE_PORT}" ]; then
+      echo "Error: Machine connection details not available"
+      exit 1
+    fi
+
+    # Execute command via SSH
+    ssh -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -p "${DEVPOD_MACHINE_PORT}" \
+        "${DEVPOD_MACHINE_USER}@${DEVPOD_MACHINE_HOST}" \
+        "${COMMAND}"
