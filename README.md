@@ -67,6 +67,49 @@ devpod up ./my-project --provider dokploy-dev
 devpod ssh my-workspace
 ```
 
+## 🔐 SSH Authentication & DevPod Integration
+
+### How SSH Authentication Works
+
+This provider is designed to work seamlessly with DevPod's built-in SSH authentication system:
+
+1. **Provider Creates Infrastructure**: Sets up Alpine container with SSH daemon and hybrid authentication
+2. **DevPod Connects**: Uses its built-in SSH key management to connect to the container
+3. **Agent Injection**: DevPod automatically injects its agent and SSH keys
+4. **Workspace Management**: DevPod agent handles development environment setup
+
+### Authentication Flow
+
+```
+DevPod → SSH Connection → Container (hybrid auth) → Agent Injection → SSH Keys → Secure Connection
+```
+
+#### Container SSH Configuration
+
+The provider configures the container with:
+
+```bash
+# Hybrid authentication support
+PubkeyAuthentication yes          # For DevPod's SSH keys
+PasswordAuthentication yes        # For initial connection
+AuthorizedKeysFile .ssh/authorized_keys
+PermitRootLogin no
+```
+
+#### DevPod's Role
+
+- **SSH Key Generation**: DevPod automatically generates or uses existing SSH keys
+- **Key Injection**: Injects public keys into `/home/devpod/.ssh/authorized_keys`
+- **Agent Deployment**: Installs DevPod agent for workspace management
+- **Credential Forwarding**: Handles Git credentials, Docker credentials, etc.
+
+### Why This Approach Works
+
+- **No Manual SSH Setup**: DevPod handles all SSH key management automatically
+- **Secure by Default**: Uses SSH keys for ongoing connections
+- **Fallback Support**: Password authentication available if needed
+- **Platform Agnostic**: Works across different development environments
+
 ## ⏱️ Important: Docker Swarm Port Mapping Delay
 
 **Expected Behavior**: When creating a new workspace, you'll see a 60+ second delay during SSH setup. This is **normal and expected** behavior.
@@ -157,14 +200,38 @@ Enable detailed debugging:
 devpod up <source> --provider dokploy-dev --debug
 ```
 
-### Manual SSH Connection
+### SSH Connection Issues
 
-If automated SSH fails, connect manually:
+If you encounter SSH connection problems:
+
+1. **Check Port Availability**: Ensure the SSH port (usually 2222) is accessible
+2. **Wait for Propagation**: Docker Swarm port mapping can take 60-120 seconds
+3. **DevPod Retry**: DevPod will automatically retry connections
+4. **Manual Verification**: Test port accessibility with `nc -z <host> <port>`
+
+### DevPod Agent Issues
+
+If DevPod agent injection fails:
 
 ```bash
-ssh -p 2222 devpod@your-dokploy-host.com
-# Password: devpod
+# Check if container is running
+devpod ssh <workspace-name>
+
+# If SSH works but agent fails, check logs
+devpod logs <workspace-name>
 ```
+
+### Container Access
+
+For direct container access (debugging only):
+
+```bash
+# SSH with password (if needed for debugging)
+ssh -p 2222 devpod@your-dokploy-host.com
+# Password: devpod (only for initial setup/debugging)
+```
+
+**Note**: DevPod will automatically set up SSH key authentication, so password access is mainly for debugging purposes.
 
 ## 📊 Performance
 

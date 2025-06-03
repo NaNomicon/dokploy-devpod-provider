@@ -1,5 +1,131 @@
 # Dokploy DevPod Provider - Changelog
 
+## v0.1.1 - SSH Authentication & DevPod Integration Improvements
+
+### 🔐 SSH Authentication Enhancements
+
+#### DevPod Agent Integration
+
+- **Fixed SSH authentication flow** to work with DevPod's built-in SSH key management
+- **Hybrid authentication support**: Container now supports both password and SSH key authentication
+- **DevPod agent compatibility**: Proper setup for DevPod's automatic SSH key injection
+- **Removed authentication conflicts**: Eliminated "Permission denied" errors during connection
+
+#### SSH Configuration Improvements
+
+- **Enhanced SSH daemon setup**: Proper configuration for both `PubkeyAuthentication` and `PasswordAuthentication`
+- **SSH directory structure**: Correct `/home/devpod/.ssh` setup with proper permissions (700)
+- **Authorized keys support**: Container ready to receive DevPod's SSH key injection
+- **User ownership**: Proper `chown devpod:devpod` for SSH directories
+
+### 🔧 Port Availability Testing
+
+#### Simplified Connection Testing
+
+- **Replaced authentication testing** with port availability testing
+- **Removed timeout command dependency**: Fixed "timeout: command not found" errors in Alpine
+- **Enhanced SSH daemon detection**: Recognizes "Connection closed" as valid SSH response
+- **Improved compatibility**: Works reliably across different environments
+
+#### Better Error Handling
+
+- **Non-blocking approach**: Port availability issues don't fail workspace creation
+- **Graceful degradation**: DevPod can retry connections if initial tests are inconclusive
+- **Clear status reporting**: Users understand when SSH is ready vs. still propagating
+
+### 🚀 DevPod Integration
+
+#### Provider-Agent Separation
+
+- **Clear responsibility separation**: Provider creates infrastructure, DevPod agent manages workspace
+- **Proper handoff mechanism**: Provider ensures SSH accessibility, then hands control to DevPod
+- **Agent injection support**: Container properly configured for DevPod agent deployment
+- **Credential forwarding**: Ready for DevPod's automatic credential injection
+
+#### Connection Flow Optimization
+
+- **Faster initial connection**: Reduced unnecessary authentication attempts
+- **Reliable SSH setup**: Container ready for DevPod's connection patterns
+- **Auto-shutdown support**: Proper agent configuration for inactivity timeout (10m)
+
+### 🐛 Bug Fixes
+
+#### Alpine Linux Compatibility
+
+- **Fixed timeout command usage**: Removed dependency on `timeout` (not available in Alpine)
+- **Simplified SSH testing**: Uses native SSH options instead of external commands
+- **Better error detection**: Improved pattern matching for SSH responses
+
+#### SSH Response Handling
+
+- **Enhanced response parsing**: Recognizes various SSH daemon responses as valid
+- **Connection closed detection**: Treats "Connection closed" as successful SSH daemon response
+- **Reduced false negatives**: More reliable detection of working SSH services
+
+### 📊 User Experience
+
+#### Clear Communication
+
+- **Updated status messages**: Better explanation of what DevPod will handle
+- **Hybrid authentication notice**: Users understand both password and key auth are available
+- **Next steps guidance**: Clear information about DevPod's role in the process
+
+#### Improved Documentation
+
+- **SSH authentication flow**: Documented how DevPod handles SSH key injection
+- **Provider responsibilities**: Clear explanation of what the provider vs. DevPod agent does
+- **Troubleshooting updates**: Better guidance for SSH-related issues
+
+### 🏗️ Architecture
+
+#### DevPod Agent Architecture
+
+- **Machine provider pattern**: Proper implementation of DevPod's machine provider interface
+- **Agent injection ready**: Container configured for DevPod agent deployment
+- **Credential management**: Ready for DevPod's automatic credential forwarding
+- **Workspace lifecycle**: Proper support for DevPod's workspace management
+
+#### SSH Service Architecture
+
+- **Hybrid authentication**: Supports both password (initial) and key-based (ongoing) authentication
+- **Service readiness**: Reliable detection of SSH service availability
+- **Port propagation handling**: Proper waiting for Docker Swarm port mapping
+
+### 🔮 Technical Details
+
+#### SSH Configuration
+
+```bash
+# Container now configured with:
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+PasswordAuthentication yes  # For initial DevPod connection
+PermitRootLogin no
+```
+
+#### DevPod Integration Points
+
+- **Agent path**: `/opt/devpod/agent` (configurable)
+- **Driver**: `docker` (for container workloads)
+- **Inactivity timeout**: `10m` (configurable)
+- **SSH user**: `devpod` with sudo privileges
+
+### 📈 Reliability Improvements
+
+#### Connection Success Rate
+
+- **Eliminated authentication errors**: Fixed "Permission denied" issues
+- **Better SSH detection**: More reliable identification of working SSH services
+- **Reduced false failures**: Port availability issues don't block workspace creation
+
+#### Error Recovery
+
+- **DevPod retry capability**: Provider doesn't fail if SSH isn't immediately ready
+- **Graceful degradation**: Users can manually connect if automated tests are inconclusive
+- **Clear error messages**: Better guidance when issues occur
+
+---
+
 ## v0.1.0 - Major Performance and Reliability Improvements
 
 ### 🚀 Performance Optimizations

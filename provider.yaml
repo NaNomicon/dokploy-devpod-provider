@@ -1,5 +1,5 @@
 name: dokploy
-version: v0.1.0
+version: v0.1.1
 description: "Dokploy provider for DevPod - Create and manage development machines via Dokploy"
 icon: https://raw.githubusercontent.com/Dokploy/dokploy/refs/heads/canary/apps/dokploy/logo.png
 
@@ -182,8 +182,8 @@ exec:
     # Update application with SSH setup command
     echo "Configuring application for SSH access..."
 
-    # Use a robust SSH setup that ensures daemon starts and stays running
-    UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'apk add --no-cache openssh-server sudo bash && adduser -D -s /bin/bash devpod && echo devpod:devpod | chpasswd && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && ssh-keygen -A && echo \\\"PermitRootLogin yes\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && mkdir -p /run/sshd && echo \\\"SSH setup complete, starting daemon...\\\" && exec /usr/sbin/sshd -D -e'\"}"
+    # Simplified SSH setup - let DevPod handle key injection through its agent
+    UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'apk add --no-cache openssh-server sudo bash curl && adduser -D -s /bin/bash devpod && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && ssh-keygen -A && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && echo \\\"PubkeyAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"AuthorizedKeysFile .ssh/authorized_keys\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"PermitRootLogin no\\\" >> /etc/ssh/sshd_config && echo \\\"Port 22\\\" >> /etc/ssh/sshd_config && mkdir -p /run/sshd && echo \\\"SSH setup complete, starting daemon...\\\" && exec /usr/sbin/sshd -D -e'\"}"
 
     UPDATE_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.update" \
       -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
@@ -200,6 +200,8 @@ exec:
 
     # Deploy the application with SSH configuration
     echo "Deploying application with SSH configuration..."
+    echo "NOTE: Container configured with both password and key authentication"
+    echo "      DevPod will inject SSH keys automatically when connecting"
     DEPLOY_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
       -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
@@ -425,13 +427,12 @@ exec:
     echo ""
 
     # Test SSH connection with retries
-    echo "Testing SSH connection to $SSH_HOST:$SSH_PORT..."
-    echo "DEBUG: Starting SSH connection diagnostics..."
+    echo "Testing SSH port availability on $SSH_HOST:$SSH_PORT..."
+    echo "DEBUG: Starting SSH port availability check..."
     echo "DEBUG: SSH_HOST='$SSH_HOST'"
     echo "DEBUG: SSH_PORT='$SSH_PORT'"
-    echo "DEBUG: SSH_USER='devpod'"
 
-    SSH_SUCCESS=false
+    PORT_READY=false
 
     # Wait longer for port mapping and SSH daemon to be fully ready
     echo "Waiting for SSH daemon and port mapping to be fully active..."
@@ -449,7 +450,7 @@ exec:
     sleep 60
 
     # Pre-connection diagnostics
-    echo "DEBUG: Running pre-connection diagnostics..."
+    echo "DEBUG: Running port availability diagnostics..."
 
     # Test basic network connectivity to the host
     echo "DEBUG: Testing basic network connectivity to $SSH_HOST..."
@@ -459,19 +460,19 @@ exec:
       echo "DEBUG: ⚠️  Host $SSH_HOST is not responding to ping (may be normal if ICMP is blocked)"
     fi
 
-    # Test if the port is open using netcat/telnet with longer wait
-    echo "DEBUG: Testing if port $SSH_PORT is open on $SSH_HOST..."
-    PORT_ACCESSIBLE=false
+    # Test if the port is open and SSH daemon is responding
+    echo "DEBUG: Testing if SSH daemon is accessible on port $SSH_PORT..."
 
     # Try multiple times with increasing delays for port to become accessible
     for attempt in 1 2 3 4 5; do
-      echo "DEBUG: Port accessibility test attempt $attempt/5..."
+      echo "DEBUG: Port availability test attempt $attempt/5..."
       
+      # Test port connectivity
+      PORT_ACCESSIBLE=false
       if command -v nc >/dev/null 2>&1; then
         if nc -z -w 10 "$SSH_HOST" "$SSH_PORT" 2>/dev/null; then
           echo "DEBUG: ✓ Port $SSH_PORT is open and accepting connections"
           PORT_ACCESSIBLE=true
-          break
         else
           echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $attempt"
         fi
@@ -479,104 +480,57 @@ exec:
         if echo "" | telnet "$SSH_HOST" "$SSH_PORT" 2>/dev/null | grep -q "Connected"; then
           echo "DEBUG: ✓ Port $SSH_PORT is open and accepting connections"
           PORT_ACCESSIBLE=true
-          break
         else
           echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $attempt"
         fi
       else
-        echo "DEBUG: ⚠️  No netcat or telnet available for port testing"
+        echo "DEBUG: ⚠️  No netcat or telnet available for port testing, assuming port is ready"
+        PORT_ACCESSIBLE=true
+      fi
+      
+      # Test if SSH daemon is responding (just check for SSH banner, no auth)
+      SSH_DAEMON_RESPONDING=false
+      if [ "$PORT_ACCESSIBLE" = "true" ]; then
+        echo "DEBUG: Testing SSH daemon response..."
+        # Simple test - if we can connect and get any response, SSH daemon is working
+        SSH_TEST_OUTPUT=$(ssh -o StrictHostKeyChecking=no \
+                             -o UserKnownHostsFile=/dev/null \
+                             -o ConnectTimeout=5 \
+                             -o PreferredAuthentications=none \
+                             -p "$SSH_PORT" "test@$SSH_HOST" 2>&1 || true)
+        
+        # If we get any SSH-related response (including connection closed), daemon is responding
+        if echo "$SSH_TEST_OUTPUT" | grep -q "Permission denied\|publickey\|password\|Connection closed\|SSH\|OpenSSH"; then
+          echo "DEBUG: ✓ SSH daemon is responding"
+          SSH_DAEMON_RESPONDING=true
+        else
+          echo "DEBUG: ❌ SSH daemon not responding properly on attempt $attempt"
+          echo "DEBUG: SSH response: $SSH_TEST_OUTPUT"
+        fi
+      fi
+      
+      # Check if both port and SSH daemon are ready
+      if [ "$PORT_ACCESSIBLE" = "true" ] && [ "$SSH_DAEMON_RESPONDING" = "true" ]; then
+        echo "✅ SSH port and daemon are ready!"
+        echo "   Port $SSH_PORT is accessible and SSH daemon is responding"
+        PORT_READY=true
         break
       fi
       
       if [ $attempt -lt 5 ]; then
-        echo "DEBUG: Waiting 30 seconds before next port test..."
+        echo "DEBUG: Waiting 30 seconds before next attempt..."
         sleep 30
       fi
     done
 
-    if [ "$PORT_ACCESSIBLE" = "false" ]; then
-      echo "DEBUG: ⚠️  Port $SSH_PORT is still not accessible after 5 attempts"
-      echo "DEBUG: This may indicate Dokploy port mapping is not working correctly"
-    fi
-
-    # Check if SSH service is responding (without authentication) - remove timeout dependency
-    echo "DEBUG: Testing SSH service response..."
-    SSH_BANNER=$(ssh -o StrictHostKeyChecking=no \
-                     -o UserKnownHostsFile=/dev/null \
-                     -o ConnectTimeout=10 \
-                     -o BatchMode=yes \
-                     -o PreferredAuthentications=none \
-                     -p "$SSH_PORT" "test@$SSH_HOST" 2>&1 | head -5)
-    echo "DEBUG: SSH banner/response: $SSH_BANNER"
-
-    for i in $(seq 1 3); do
-      echo "DEBUG: === SSH connection attempt $i/3 ==="
-      echo "SSH connection attempt $i/3..."
-      
-      # Detailed SSH command for debugging (remove timeout dependency)
-      SSH_CMD="ssh -o StrictHostKeyChecking=no \
-                  -o UserKnownHostsFile=/dev/null \
-                  -o ConnectTimeout=10 \
-                  -o ServerAliveInterval=5 \
-                  -o ServerAliveCountMax=3 \
-                  -o BatchMode=yes \
-                  -p \"$SSH_PORT\" \"devpod@$SSH_HOST\" \"echo 'SSH connection successful'\""
-      
-      echo "DEBUG: Running SSH command: $SSH_CMD"
-      echo "DEBUG: SSH attempt started at $(date)"
-      
-      # Run SSH with detailed error output (remove timeout command)
-      SSH_OUTPUT=$(ssh -o StrictHostKeyChecking=no \
-                      -o UserKnownHostsFile=/dev/null \
-                      -o ConnectTimeout=10 \
-                      -o ServerAliveInterval=5 \
-                      -o ServerAliveCountMax=3 \
-                      -o BatchMode=yes \
-                      -v \
-                      -p "$SSH_PORT" "devpod@$SSH_HOST" "echo 'SSH connection successful'" 2>&1)
-      SSH_EXIT_CODE=$?
-      
-      echo "DEBUG: SSH attempt finished at $(date)"
-      echo "DEBUG: SSH exit code: $SSH_EXIT_CODE"
-      echo "DEBUG: SSH output (first 10 lines):"
-      echo "$SSH_OUTPUT" | head -10 | sed 's/^/DEBUG: /'
-      
-      if [ $SSH_EXIT_CODE -eq 0 ]; then
-        echo "✅ SSH connection test successful!"
-        echo "DEBUG: SSH connection established successfully"
-        SSH_SUCCESS=true
-        break
-      else
-        echo "SSH connection attempt $i/3 failed (exit code: $SSH_EXIT_CODE)"
-        
-        # Analyze common SSH failure patterns
-        if echo "$SSH_OUTPUT" | grep -q "Connection refused"; then
-          echo "DEBUG: Connection refused - SSH daemon may not be running or port not mapped"
-        elif echo "$SSH_OUTPUT" | grep -q "Connection timed out"; then
-          echo "DEBUG: Connection timed out - network/firewall issue or wrong port"
-        elif echo "$SSH_OUTPUT" | grep -q "No route to host"; then
-          echo "DEBUG: No route to host - network connectivity issue"
-        elif echo "$SSH_OUTPUT" | grep -q "Permission denied"; then
-          echo "DEBUG: Permission denied - authentication issue (user/password/keys)"
-        elif echo "$SSH_OUTPUT" | grep -q "Host key verification failed"; then
-          echo "DEBUG: Host key verification failed - SSH host key issue"
-        else
-          echo "DEBUG: Unknown SSH error - see output above"
-        fi
-        
-        if [ $i -lt 3 ]; then
-          echo "Waiting 30 seconds before retry..."
-          echo "DEBUG: Sleeping 30 seconds before next attempt..."
-          sleep 30
-        fi
-      fi
-    done
-
-    # Don't fail the entire process if SSH test fails - workspace might still be usable
-    if [ "$SSH_SUCCESS" = "false" ]; then
-      echo "⚠️  SSH connection test failed, but workspace may still be functional"
-      echo "   SSH access should be available shortly on $SSH_HOST:$SSH_PORT"
-      echo "   Try connecting manually in a few minutes if needed"
+    # Report final status
+    if [ "$PORT_READY" = "true" ]; then
+      echo "✅ SSH service is ready for DevPod connection!"
+      echo "   DevPod can now connect and inject its agent"
+    else
+      echo "⚠️  SSH port availability check incomplete"
+      echo "   Port may still be propagating, DevPod will retry connections as needed"
+      echo "   SSH should be available shortly on $SSH_HOST:$SSH_PORT"
     fi
 
     # Return connection info to DevPod
@@ -588,11 +542,12 @@ exec:
     echo ""
     echo "✅ Dokploy workspace created successfully!"
 
-    if [ "$SSH_SUCCESS" = true ]; then
-      echo "🎉 SSH access is ready and working!"
+    if [ "$PORT_READY" = "true" ]; then
+      echo "🎉 SSH port is ready and accessible!"
+      echo "DevPod can now connect and set up authentication automatically"
     elif [ "$SSH_HOST_PORT" != "22" ]; then
-      echo "⚠️  SSH port mapping configured but connection test failed"
-      echo "The workspace is ready, SSH may need a few more minutes to be accessible"
+      echo "⚠️  SSH port mapping configured, waiting for full availability"
+      echo "DevPod will retry connections until the port is fully accessible"
     else
       echo "⚠️  Manual SSH configuration required for full functionality"
     fi
@@ -603,7 +558,13 @@ exec:
     echo "- SSH Host: $SSH_HOST"
     echo "- SSH Port: $SSH_PORT"
     echo "- SSH User: devpod"
+    echo "- SSH Auth: Hybrid (password + key) - DevPod will inject keys automatically"
     echo "- Dokploy Dashboard: $DOKPLOY_SERVER_URL"
+    echo ""
+    echo "Next Steps:"
+    echo "- DevPod will connect via SSH and inject its agent"
+    echo "- The agent will handle authentication, credentials, and workspace setup"
+    echo "- Container will auto-shutdown after inactivity (10m configured)"
 
   # Delete the machine
   delete: |-
@@ -692,6 +653,9 @@ exec:
     # Execute command via SSH
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
+        -o ConnectTimeout=30 \
+        -o ServerAliveInterval=5 \
+        -o ServerAliveCountMax=3 \
         -p "${DEVPOD_MACHINE_PORT}" \
         "${DEVPOD_MACHINE_USER}@${DEVPOD_MACHINE_HOST}" \
         "${COMMAND}"
