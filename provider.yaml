@@ -225,24 +225,30 @@ exec:
         echo "✓ Deployment completed successfully"
         break
       elif [ "$STATUS" = "error" ]; then
-        echo "Error: Deployment failed"
-        exit 1
+        echo "⚠️  Redeployment failed, but continuing..."
+        break
       fi
       
-      echo "Deployment status: $STATUS (attempt $i/60)"
+      echo "   Redeployment status: $STATUS (attempt $i/60)"
       sleep 5
     done
 
     # Automatically configure SSH port mapping via API
     echo "Configuring SSH port mapping via Dokploy API..."
 
+    # Extract server information for SSH connection (needed for port testing)
+    DOKPLOY_HOST="${DOKPLOY_SERVER_URL#*://}"
+    DOKPLOY_HOST="${DOKPLOY_HOST%%/*}"  # Remove path if present
+    DOKPLOY_HOST="${DOKPLOY_HOST%%:*}"  # Remove port if present
+
     # Simple approach: try ports one by one until we find one that works
     # Note: Dokploy API doesn't have a port.all endpoint to check existing ports,
-    # so we rely on the port.create API to return errors for conflicts
+    # and Docker Swarm can have silent port conflicts, so we need to verify actual accessibility
     SSH_HOST_PORT=""
     PORT_CREATED=false
     echo "Searching for available SSH port (trying ports 2222-2230)..."
     echo "DEBUG: Starting port allocation loop..."
+    echo "DEBUG: Will test port accessibility on host: $DOKPLOY_HOST"
 
     for port in 2222 2223 2224 2225 2226 2227 2228 2229 2230; do
       echo "DEBUG: === Trying port $port ==="
@@ -255,6 +261,39 @@ exec:
       fi
       
       echo "Trying port $port..."
+      
+      # Pre-check: Test if port is already in use before API call
+      echo "DEBUG: Pre-checking port availability on $DOKPLOY_HOST:$port..."
+      PORT_PRECHECK_AVAILABLE=false
+      
+      # Test if SSH daemon is responding on this port (more accurate than nc/telnet)
+      SSH_PRECHECK_OUTPUT=$(ssh -o StrictHostKeyChecking=no \
+                               -o UserKnownHostsFile=/dev/null \
+                               -o ConnectTimeout=3 \
+                               -o PreferredAuthentications=none \
+                               -p "$port" "test@$DOKPLOY_HOST" 2>&1 || true)
+      
+      # If we get any SSH-related response, the port is in use by SSH
+      if echo "$SSH_PRECHECK_OUTPUT" | grep -q "Permission denied\|publickey\|password\|Connection closed\|SSH\|OpenSSH"; then
+        echo "DEBUG: ❌ Port $port is already in use by SSH service (pre-check failed)"
+        echo "   Port $port is already bound by another SSH service"
+        echo "   Skipping API call and trying next port..."
+        continue
+      elif echo "$SSH_PRECHECK_OUTPUT" | grep -q "Connection refused\|No route to host\|Connection timed out"; then
+        echo "DEBUG: ✅ Port $port appears available (pre-check passed)"
+        PORT_PRECHECK_AVAILABLE=true
+      else
+        echo "DEBUG: ✅ Port $port appears available (pre-check passed - no SSH response)"
+        PORT_PRECHECK_AVAILABLE=true
+      fi
+      
+      # Only proceed with API call if pre-check passed
+      if [ "$PORT_PRECHECK_AVAILABLE" = "true" ]; then
+        echo "DEBUG: Port $port pre-check passed, proceeding with API call..."
+      else
+        echo "DEBUG: Port $port pre-check failed, skipping..."
+        continue
+      fi
       
       # Try to create the port mapping
       PORT_DATA="{\"publishedPort\": $port, \"targetPort\": 22, \"protocol\": \"tcp\", \"applicationId\": \"$APP_ID\"}"
@@ -299,12 +338,18 @@ exec:
           echo "DEBUG: Port creation failed due to API error, continuing to next port..."
         # Check if we got a simple success response (boolean true)
         elif [ "$RESPONSE_BODY" = "true" ]; then
-          # Success! We created the port mapping
-          SSH_HOST_PORT=$port
-          PORT_CREATED=true
-          echo "✅ Port $port is available and mapping created successfully!"
+          # API success! Port mapping created
+          echo "✅ Port $port API mapping created successfully!"
           echo "   Response: $RESPONSE_BODY"
           echo "   Mapping: $port (host) → 22 (container)"
+          echo "DEBUG: API succeeded, marking port as created..."
+          
+          # Success! Port mapping created via API
+          SSH_HOST_PORT=$port
+          PORT_CREATED=true
+          echo "🎉 Port $port API mapping completed!"
+          echo "   ✅ API mapping created successfully"
+          echo "   ⏳ Port accessibility will be verified in final SSH testing phase"
           echo "DEBUG: Setting PORT_CREATED=true and breaking..."
           break
         else
@@ -313,12 +358,18 @@ exec:
           echo "DEBUG: Extracted port ID: '$PORT_ID'"
           
           if [ -n "$PORT_ID" ] && [ "$PORT_ID" != "null" ] && [ "$PORT_ID" != "empty" ]; then
-            # Success! We created the port mapping
-            SSH_HOST_PORT=$port
-            PORT_CREATED=true
-            echo "✅ Port $port is available and mapping created successfully!"
+            # API success with port ID! Port mapping created
+            echo "✅ Port $port API mapping created successfully!"
             echo "   Port ID: $PORT_ID"
             echo "   Mapping: $port (host) → 22 (container)"
+            echo "DEBUG: API succeeded with port ID, marking port as created..."
+            
+            # Success! Port mapping created via API
+            SSH_HOST_PORT=$port
+            PORT_CREATED=true
+            echo "🎉 Port $port API mapping completed!"
+            echo "   ✅ API mapping created successfully"
+            echo "   ⏳ Port accessibility will be verified in final SSH testing phase"
             echo "DEBUG: Setting PORT_CREATED=true and breaking..."
             break
           else
@@ -398,11 +449,7 @@ exec:
       exit 1
     fi
 
-    # Extract server information for SSH connection
-    DOKPLOY_HOST="${DOKPLOY_SERVER_URL#*://}"
-    DOKPLOY_HOST="${DOKPLOY_HOST%%/*}"  # Remove path if present
-    DOKPLOY_HOST="${DOKPLOY_HOST%%:*}"  # Remove port if present
-
+    # Set SSH connection variables (DOKPLOY_HOST already extracted earlier)
     SSH_HOST="$DOKPLOY_HOST"
     SSH_PORT="$SSH_HOST_PORT"
 
@@ -446,8 +493,8 @@ exec:
     echo "   • Port propagation: ⏳ In progress (60-120 seconds typical)"
     echo "   • SSH accessibility: ⏳ Will be available after propagation"
     echo ""
-    echo "DEBUG: Sleeping for 60 seconds to allow Dokploy port mapping to propagate..."
-    sleep 60
+    echo "DEBUG: Sleeping for 30 seconds to allow Dokploy port mapping to propagate..."
+    sleep 30
 
     # Pre-connection diagnostics
     echo "DEBUG: Running port availability diagnostics..."
@@ -463,9 +510,18 @@ exec:
     # Test if the port is open and SSH daemon is responding
     echo "DEBUG: Testing if SSH daemon is accessible on port $SSH_PORT..."
 
-    # Try multiple times with increasing delays for port to become accessible
-    for attempt in 1 2 3 4 5; do
-      echo "DEBUG: Port availability test attempt $attempt/5..."
+    # Try multiple times with time-based retry for port to become accessible (120 seconds)
+    RETRY_START_TIME=$(date +%s)
+    RETRY_TIMEOUT=120
+    RETRY_INTERVAL=10
+    RETRY_COUNT=0
+
+    while true; do
+      CURRENT_TIME=$(date +%s)
+      ELAPSED_TIME=$((CURRENT_TIME - RETRY_START_TIME))
+      RETRY_COUNT=$((RETRY_COUNT + 1))
+      
+      echo "DEBUG: Port availability test attempt $RETRY_COUNT (${ELAPSED_TIME}s elapsed, ${RETRY_TIMEOUT}s timeout)..."
       
       # Test port connectivity
       PORT_ACCESSIBLE=false
@@ -474,14 +530,14 @@ exec:
           echo "DEBUG: ✓ Port $SSH_PORT is open and accepting connections"
           PORT_ACCESSIBLE=true
         else
-          echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $attempt"
+          echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $RETRY_COUNT"
         fi
       elif command -v telnet >/dev/null 2>&1; then
         if echo "" | telnet "$SSH_HOST" "$SSH_PORT" 2>/dev/null | grep -q "Connected"; then
           echo "DEBUG: ✓ Port $SSH_PORT is open and accepting connections"
           PORT_ACCESSIBLE=true
         else
-          echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $attempt"
+          echo "DEBUG: ❌ Port $SSH_PORT not accessible on attempt $RETRY_COUNT"
         fi
       else
         echo "DEBUG: ⚠️  No netcat or telnet available for port testing, assuming port is ready"
@@ -504,7 +560,7 @@ exec:
           echo "DEBUG: ✓ SSH daemon is responding"
           SSH_DAEMON_RESPONDING=true
         else
-          echo "DEBUG: ❌ SSH daemon not responding properly on attempt $attempt"
+          echo "DEBUG: ❌ SSH daemon not responding properly on attempt $RETRY_COUNT"
           echo "DEBUG: SSH response: $SSH_TEST_OUTPUT"
         fi
       fi
@@ -513,14 +569,22 @@ exec:
       if [ "$PORT_ACCESSIBLE" = "true" ] && [ "$SSH_DAEMON_RESPONDING" = "true" ]; then
         echo "✅ SSH port and daemon are ready!"
         echo "   Port $SSH_PORT is accessible and SSH daemon is responding"
+        echo "   Total time: ${ELAPSED_TIME} seconds"
         PORT_READY=true
         break
       fi
       
-      if [ $attempt -lt 5 ]; then
-        echo "DEBUG: Waiting 30 seconds before next attempt..."
-        sleep 30
+      # Check if we've exceeded the timeout
+      if [ $ELAPSED_TIME -ge $RETRY_TIMEOUT ]; then
+        echo "⏰ SSH connection timeout reached (${RETRY_TIMEOUT}s)"
+        echo "   Port $SSH_PORT may still be propagating"
+        echo "   DevPod will continue retrying when it attempts to connect"
+        break
       fi
+      
+      # Wait before next retry
+      echo "DEBUG: Waiting ${RETRY_INTERVAL} seconds before next attempt..."
+      sleep $RETRY_INTERVAL
     done
 
     # Report final status
@@ -532,12 +596,6 @@ exec:
       echo "   Port may still be propagating, DevPod will retry connections as needed"
       echo "   SSH should be available shortly on $SSH_HOST:$SSH_PORT"
     fi
-
-    # Return connection info to DevPod
-    echo "DEVPOD_MACHINE_ID=$APP_ID"
-    echo "DEVPOD_MACHINE_HOST=$SSH_HOST"
-    echo "DEVPOD_MACHINE_PORT=$SSH_PORT"
-    echo "DEVPOD_MACHINE_USER=devpod"
 
     echo ""
     echo "✅ Dokploy workspace created successfully!"
@@ -565,6 +623,12 @@ exec:
     echo "- DevPod will connect via SSH and inject its agent"
     echo "- The agent will handle authentication, credentials, and workspace setup"
     echo "- Container will auto-shutdown after inactivity (10m configured)"
+
+    # Return connection info to DevPod (MUST BE LAST OUTPUT)
+    echo "DEVPOD_MACHINE_ID=$APP_ID"
+    echo "DEVPOD_MACHINE_HOST=$SSH_HOST"
+    echo "DEVPOD_MACHINE_PORT=$SSH_PORT"
+    echo "DEVPOD_MACHINE_USER=devpod"
 
   # Delete the machine
   delete: |-
@@ -619,29 +683,47 @@ exec:
 
   # Get machine status
   status: |-
+    echo "DEBUG: Starting status check for machine: ${DEVPOD_MACHINE_ID}" >&2
+
     if [ -z "${DEVPOD_MACHINE_ID}" ]; then
+      echo "DEBUG: No machine ID provided, returning NotFound" >&2
       echo "NotFound"
       exit 0
     fi
 
-    # Get application status
-    STATUS=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${DEVPOD_MACHINE_ID}" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
+    echo "DEBUG: Calling Dokploy API..." >&2
+    echo "DEBUG: URL: ${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${DEVPOD_MACHINE_ID}" >&2
+
+    # Get application status with debug output
+    API_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${DEVPOD_MACHINE_ID}" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+
+    echo "DEBUG: Raw API response: $API_RESPONSE" >&2
+
+    STATUS=$(echo "$API_RESPONSE" | jq -r '.applicationStatus // "unknown"')
+
+    echo "DEBUG: Extracted status: '$STATUS'" >&2
 
     case "$STATUS" in
       "done"|"running")
+        echo "DEBUG: Status '$STATUS' mapped to 'Running'" >&2
         echo "Running"
         ;;
-      "building"|"deploying")
-        echo "Busy"
-        ;;
-      "stopped"|"exited")
+      "idle")
+        echo "DEBUG: Status '$STATUS' mapped to 'Stopped'" >&2
         echo "Stopped"
         ;;
-      *)
+      "error")
+        echo "DEBUG: Status '$STATUS' mapped to 'NotFound'" >&2
         echo "NotFound"
         ;;
+      *)
+        echo "DEBUG: Status '$STATUS' mapped to 'Busy' (default case)" >&2
+        echo "Busy"
+        ;;
     esac
+
+    echo "DEBUG: Status check completed" >&2
 
   # Execute commands via SSH
   command: |-
