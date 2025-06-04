@@ -173,9 +173,9 @@ echo "Stage 1/4: Updating package lists..."
 apt-get update -qq
 echo "✓ Package lists updated"
 
-echo "Stage 2/4: Installing SSH server and sudo..."
-apt-get install -y -qq openssh-server sudo
-echo "✓ SSH server installed"
+echo "Stage 2/4: Installing SSH server, sudo, and DevPod agent tools..."
+apt-get install -y -qq openssh-server sudo curl wget ca-certificates gnupg lsb-release
+echo "✓ SSH server and DevPod agent tools installed"
 
 echo "Stage 3/4: Creating devpod user and configuring permissions..."
 useradd -m -s /bin/bash devpod
@@ -206,6 +206,12 @@ echo "Key file permissions: $(ls -la /home/devpod/.ssh/authorized_keys)"
 echo "Key content preview: $(head -c 50 /home/devpod/.ssh/authorized_keys)..."
 echo "✓ User devpod configured with SSH key"
 
+echo "Verifying DevPod agent installation tools..."
+echo "curl version: $(curl --version | head -n1)"
+echo "wget version: $(wget --version | head -n1)"
+echo "ca-certificates: $(ls /etc/ssl/certs/ | wc -l) certificates available"
+echo "✓ DevPod agent installation tools verified"
+
 echo "Stage 4/4: Configuring SSH daemon..."
 mkdir -p /run/sshd
 ssh-keygen -A
@@ -230,6 +236,7 @@ echo "=== Starting SSH daemon ==="
 /usr/sbin/sshd -D -e &
 echo "SSH daemon started in background"
 echo "🎉 SSH SETUP COMPLETE - DevPod can now connect with SSH key"
+echo "🔧 DevPod agent installation tools ready (curl, wget, ca-certificates)"
 sleep 5
 echo "Container ready for DevPod connection"
 tail -f /dev/null
@@ -252,10 +259,14 @@ tail -f /dev/null
 	logger.Info("")
 	logger.Info("⏳ Container Setup Timeline:")
 	logger.Info("   • Stage 1: Package update (1-2 minutes) - apt-get update")
-	logger.Info("   • Stage 2: SSH installation (30-60 seconds) - install openssh-server")
+	logger.Info("   • Stage 2: SSH installation (30-60 seconds) - install openssh-server, curl, wget, ca-certificates")
 	logger.Info("   • Stage 3: User setup (10-20 seconds) - create devpod user")
 	logger.Info("   • Stage 4: SSH configuration (10-20 seconds) - configure SSH daemon")
 	logger.Info("   • Total estimated time: 2-4 minutes")
+	logger.Info("")
+	logger.Info("🔧 DevPod Agent Support:")
+	logger.Info("   • curl, wget, ca-certificates installed for agent download")
+	logger.Info("   • Container ready for DevPod agent installation after SSH setup")
 	logger.Info("")
 
 	err = client.DeployApplication(dokploy.DeployRequest{

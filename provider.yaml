@@ -24,14 +24,22 @@ options:
       - "small"
       - "medium"
       - "large"
-  AGENT_PATH:
-    description: "The path where to inject the DevPod agent to"
-    default: "/opt/devpod/agent"
+  INACTIVITY_TIMEOUT:
+    description: "If defined, will automatically stop the VM after the inactivity period"
+    default: "10m"
+  INJECT_GIT_CREDENTIALS:
+    description: "If DevPod should inject git credentials into the remote host"
+    default: "true"
+  INJECT_DOCKER_CREDENTIALS:
+    description: "If DevPod should inject docker credentials into the remote host"
+    default: "true"
 
 agent:
-  path: ${AGENT_PATH}
+  path: ${DEVPOD}
   driver: docker
-  inactivityTimeout: 10m
+  inactivityTimeout: ${INACTIVITY_TIMEOUT}
+  injectGitCredentials: ${INJECT_GIT_CREDENTIALS}
+  injectDockerCredentials: ${INJECT_DOCKER_CREDENTIALS}
 
 binaries:
   DOKPLOY_PROVIDER_BINARY:
