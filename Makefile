@@ -4,6 +4,7 @@
 # Variables
 PROVIDER_NAME := dokploy
 PROVIDER_FILE := provider.yaml
+PROVIDER_DEV_FILE := provider-dev.yaml
 VERSION := $(shell grep '^version:' $(PROVIDER_FILE) | sed 's/version: *//')
 GITHUB_REPO := NaNomicon/dokploy-devpod-provider
 TEST_WORKSPACE := test-workspace-$(shell date +%s)
@@ -36,6 +37,62 @@ NC := \033[0m # No Color
 
 # Default target
 .DEFAULT_GOAL := help
+
+##@ Build
+
+# Go build variables
+BINARY_NAME := dokploy-provider
+BUILD_DIR := dist
+LDFLAGS := -ldflags="-s -w"
+
+.PHONY: build
+build: ## Build binary for current platform
+	@echo "$(BLUE)Building $(BINARY_NAME) for current platform...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) .
+	@echo "$(GREEN)✓ Binary built: $(BUILD_DIR)/$(BINARY_NAME)$(NC)"
+
+.PHONY: build-all
+build-all: ## Build binaries for all supported platforms
+	@echo "$(BLUE)Building $(BINARY_NAME) for all platforms...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	@echo "$(YELLOW)Building for Linux AMD64...$(NC)"
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
+	@echo "$(YELLOW)Building for Linux ARM64...$(NC)"
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
+	@echo "$(YELLOW)Building for macOS AMD64...$(NC)"
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
+	@echo "$(YELLOW)Building for macOS ARM64...$(NC)"
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
+	@echo "$(YELLOW)Building for Windows AMD64...$(NC)"
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .
+	@echo "$(GREEN)✓ All binaries built in $(BUILD_DIR)/$(NC)"
+
+.PHONY: clean
+clean: ## Clean build artifacts
+	@echo "$(YELLOW)Cleaning build artifacts...$(NC)"
+	rm -rf $(BUILD_DIR)
+	rm -f $(BINARY_NAME)
+	@echo "$(GREEN)✓ Build artifacts cleaned$(NC)"
+
+.PHONY: deps
+deps: ## Download and tidy Go dependencies
+	@echo "$(BLUE)Managing Go dependencies...$(NC)"
+	go mod download
+	go mod tidy
+	@echo "$(GREEN)✓ Dependencies updated$(NC)"
+
+.PHONY: test-build
+test-build: build ## Test the built binary
+	@echo "$(BLUE)Testing built binary...$(NC)"
+	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)" ]; then \
+		echo "$(YELLOW)Testing binary help command...$(NC)"; \
+		$(BUILD_DIR)/$(BINARY_NAME) --help; \
+		echo "$(GREEN)✓ Binary test completed$(NC)"; \
+	else \
+		echo "$(RED)✗ Binary not found: $(BUILD_DIR)/$(BINARY_NAME)$(NC)"; \
+		exit 1; \
+	fi
 
 ##@ Development
 
@@ -192,6 +249,29 @@ install-local: check-devpod check-tools validate ## Install provider locally for
 		echo "  make configure      # (for interactive setup)"; \
 	fi
 
+.PHONY: install-dev
+install-dev: check-devpod build ## Install provider locally for development using local binary
+	@echo "$(BLUE)Installing development provider locally...$(NC)"
+	@if [ -f .env ] && [ -n "$(DOKPLOY_SERVER_URL)" ] && [ -n "$(DOKPLOY_API_TOKEN)" ]; then \
+		echo "$(YELLOW)Installing with configuration from .env file...$(NC)"; \
+		$(DEVPOD_CMD) provider add ./$(PROVIDER_DEV_FILE) --name $(PROVIDER_NAME)-dev \
+			--option DOKPLOY_SERVER_URL="$(DOKPLOY_SERVER_URL)" \
+			--option DOKPLOY_API_TOKEN="$(DOKPLOY_API_TOKEN)" \
+			$$([ -n "$(DOKPLOY_PROJECT_NAME)" ] && echo "--option DOKPLOY_PROJECT_NAME=$(DOKPLOY_PROJECT_NAME)") \
+			$$([ -n "$(DOKPLOY_SERVER_ID)" ] && echo "--option DOKPLOY_SERVER_ID=$(DOKPLOY_SERVER_ID)") \
+			$$([ -n "$(MACHINE_TYPE)" ] && echo "--option MACHINE_TYPE=$(MACHINE_TYPE)") \
+			$$([ -n "$(AGENT_PATH)" ] && echo "--option AGENT_PATH=$(AGENT_PATH)"); \
+	else \
+		echo "$(YELLOW)Installing without configuration (use make configure-env or make configure)...$(NC)"; \
+		$(DEVPOD_CMD) provider add ./$(PROVIDER_DEV_FILE) --name $(PROVIDER_NAME)-dev --use=false; \
+	fi
+	@echo "$(GREEN)Development provider installed as '$(PROVIDER_NAME)-dev'$(NC)"
+	@if [ ! -f .env ] || [ -z "$(DOKPLOY_SERVER_URL)" ] || [ -z "$(DOKPLOY_API_TOKEN)" ]; then \
+		echo "$(YELLOW)To configure and use the provider, run:$(NC)"; \
+		echo "  make configure-env  # (if you have .env file)"; \
+		echo "  make configure      # (for interactive setup)"; \
+	fi
+
 .PHONY: install-github
 install-github: ## Install provider from GitHub repository
 	@echo "$(BLUE)Installing provider from GitHub...$(NC)"
@@ -230,15 +310,30 @@ cleanup-workspaces: ## Delete all workspaces using this provider
 		echo "$(YELLOW)Deleting workspaces with --force flag...$(NC)"; \
 		for ws in $$workspaces; do \
 			echo "$(BLUE)Deleting workspace: $$ws$(NC)"; \
-			if $(DEVPOD_CMD) delete $$ws --force --debug; then \
+			echo "$(YELLOW)Attempting graceful deletion...$(NC)"; \
+			if $(DEVPOD_CMD) delete $$ws --force 2>/dev/null; then \
 				echo "$(GREEN)✓ Successfully deleted: $$ws$(NC)"; \
 			else \
-				echo "$(RED)✗ Failed to delete: $$ws$(NC)"; \
-				echo "$(YELLOW)Trying alternative deletion methods...$(NC)"; \
+				echo "$(YELLOW)Graceful deletion failed, trying aggressive methods...$(NC)"; \
 				$(DEVPOD_CMD) stop $$ws --force 2>/dev/null || true; \
+				sleep 2; \
 				$(DEVPOD_CMD) delete $$ws --force 2>/dev/null || true; \
+				sleep 2; \
+				$(DEVPOD_CMD) delete $$ws --force --ignore-not-found 2>/dev/null || true; \
+				echo "$(YELLOW)⚠ Attempted aggressive deletion for: $$ws$(NC)"; \
 			fi; \
 		done; \
+		echo "$(YELLOW)Waiting for cleanup to complete...$(NC)"; \
+		sleep 3; \
+		remaining=$$($(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[] | select(.provider == "$(PROVIDER_NAME)" or .provider == "$(PROVIDER_NAME)-dev") | .id' 2>/dev/null || true); \
+		if [ -n "$$remaining" ]; then \
+			echo "$(RED)⚠ Some workspaces may still exist:$(NC)"; \
+			for ws in $$remaining; do \
+				echo "  - $$ws (may need manual cleanup)"; \
+			done; \
+		else \
+			echo "$(GREEN)✓ All workspaces cleaned up$(NC)"; \
+		fi; \
 	else \
 		echo "$(GREEN)No workspaces found for this provider$(NC)"; \
 	fi
@@ -248,15 +343,36 @@ force-uninstall: cleanup-workspaces ## Force remove provider and all its workspa
 	@echo "$(YELLOW)Force removing provider...$(NC)"
 	@echo "$(BLUE)Current providers before deletion:$(NC)"
 	@$(DEVPOD_CMD) provider list || true
-	@echo "$(YELLOW)Attempting to delete providers...$(NC)"
-	@if $(DEVPOD_CMD) provider list | grep -q "$(PROVIDER_NAME)-dev"; then \
-		echo "$(BLUE)Deleting $(PROVIDER_NAME)-dev...$(NC)"; \
-		$(DEVPOD_CMD) provider delete $(PROVIDER_NAME)-dev --debug || true; \
-	fi
-	@if $(DEVPOD_CMD) provider list | grep -q "$(PROVIDER_NAME)"; then \
-		echo "$(BLUE)Deleting $(PROVIDER_NAME)...$(NC)"; \
-		$(DEVPOD_CMD) provider delete $(PROVIDER_NAME) --debug || true; \
-	fi
+	@echo "$(YELLOW)Attempting to delete providers (with retries)...$(NC)"
+	@for attempt in 1 2 3; do \
+		echo "$(BLUE)Deletion attempt $$attempt/3...$(NC)"; \
+		success=true; \
+		if $(DEVPOD_CMD) provider list 2>/dev/null | grep -q "$(PROVIDER_NAME)-dev"; then \
+			echo "$(BLUE)Deleting $(PROVIDER_NAME)-dev...$(NC)"; \
+			if ! $(DEVPOD_CMD) provider delete $(PROVIDER_NAME)-dev 2>/dev/null; then \
+				echo "$(YELLOW)Failed to delete $(PROVIDER_NAME)-dev on attempt $$attempt$(NC)"; \
+				success=false; \
+			fi; \
+		fi; \
+		if $(DEVPOD_CMD) provider list 2>/dev/null | grep -q "$(PROVIDER_NAME)$$"; then \
+			echo "$(BLUE)Deleting $(PROVIDER_NAME)...$(NC)"; \
+			if ! $(DEVPOD_CMD) provider delete $(PROVIDER_NAME) 2>/dev/null; then \
+				echo "$(YELLOW)Failed to delete $(PROVIDER_NAME) on attempt $$attempt$(NC)"; \
+				success=false; \
+			fi; \
+		fi; \
+		if $$success; then \
+			echo "$(GREEN)✓ Provider deletion successful on attempt $$attempt$(NC)"; \
+			break; \
+		elif [ $$attempt -lt 3 ]; then \
+			echo "$(YELLOW)Retrying in 3 seconds...$(NC)"; \
+			sleep 3; \
+			echo "$(BLUE)Re-checking for remaining workspaces...$(NC)"; \
+			$(MAKE) cleanup-workspaces; \
+		else \
+			echo "$(RED)⚠ Provider deletion failed after 3 attempts$(NC)"; \
+		fi; \
+	done
 	@echo "$(BLUE)Current providers after deletion:$(NC)"
 	@$(DEVPOD_CMD) provider list || true
 	@echo "$(GREEN)Provider force removal completed$(NC)"
@@ -279,7 +395,7 @@ reinstall: ## Reinstall the provider locally
 	@$(MAKE) install-local
 
 .PHONY: force-reinstall
-force-reinstall: force-uninstall install-local ## Force reinstall provider (deletes all workspaces)
+force-reinstall: force-uninstall install-dev ## Force reinstall provider (deletes all workspaces)
 
 ##@ Configuration
 
@@ -403,11 +519,54 @@ test-ssh: ## Test SSH connection to workspace
 .PHONY: cleanup-test
 cleanup-test: ## Clean up test workspaces
 	@echo "$(YELLOW)Cleaning up test workspaces...$(NC)"
-	@for ws in $$($(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[].id' 2>/dev/null | grep -E "test-workspace|vscode-remote-try" || true); do \
+	@for ws in $$($(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[].id' 2>/dev/null | grep -E "test-workspace|vscode-remote-try|test-debug|test-" || true); do \
 		echo "$(BLUE)Deleting test workspace: $$ws$(NC)"; \
 		$(DEVPOD_CMD) delete $$ws --force --ignore-not-found 2>/dev/null || true; \
 	done
 	@echo "$(GREEN)Test workspaces cleaned up$(NC)"
+
+.PHONY: nuclear-cleanup
+nuclear-cleanup: ## Nuclear option: delete ALL workspaces and providers
+	@echo "$(RED)⚠ WARNING: This will delete ALL DevPod workspaces and providers!$(NC)"
+	@echo "$(YELLOW)This is a nuclear option for when things are completely stuck.$(NC)"
+	@read -p "Are you sure? Type 'yes' to continue: " confirm; \
+	if [ "$$confirm" = "yes" ]; then \
+		echo "$(RED)Performing nuclear cleanup...$(NC)"; \
+		echo "$(BLUE)Deleting all workspaces...$(NC)"; \
+		for ws in $$($(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[].id' 2>/dev/null || true); do \
+			echo "$(YELLOW)Deleting workspace: $$ws$(NC)"; \
+			$(DEVPOD_CMD) delete $$ws --force --ignore-not-found 2>/dev/null || true; \
+		done; \
+		sleep 5; \
+		echo "$(BLUE)Deleting all providers...$(NC)"; \
+		for provider in $$($(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -r '.[].name' 2>/dev/null || true); do \
+			echo "$(YELLOW)Deleting provider: $$provider$(NC)"; \
+			$(DEVPOD_CMD) provider delete $$provider --force --ignore-not-found 2>/dev/null || true; \
+		done; \
+		echo "$(GREEN)Nuclear cleanup completed$(NC)"; \
+	else \
+		echo "$(GREEN)Nuclear cleanup cancelled$(NC)"; \
+	fi
+
+.PHONY: fix-stuck-workspace
+fix-stuck-workspace: ## Fix a specific stuck workspace (interactive)
+	@echo "$(BLUE)Fix stuck workspace$(NC)"
+	@echo "$(YELLOW)Current workspaces:$(NC)"
+	@$(DEVPOD_CMD) list || true
+	@read -p "Enter workspace name to force delete: " ws_name; \
+	if [ -n "$$ws_name" ]; then \
+		echo "$(BLUE)Attempting to force delete workspace: $$ws_name$(NC)"; \
+		echo "$(YELLOW)Method 1: Standard force delete...$(NC)"; \
+		$(DEVPOD_CMD) delete $$ws_name --force 2>/dev/null || true; \
+		echo "$(YELLOW)Method 2: Stop then delete...$(NC)"; \
+		$(DEVPOD_CMD) stop $$ws_name --force 2>/dev/null || true; \
+		$(DEVPOD_CMD) delete $$ws_name --force 2>/dev/null || true; \
+		echo "$(YELLOW)Method 3: Ignore not found...$(NC)"; \
+		$(DEVPOD_CMD) delete $$ws_name --force --ignore-not-found 2>/dev/null || true; \
+		echo "$(GREEN)Attempted all deletion methods for: $$ws_name$(NC)"; \
+	else \
+		echo "$(RED)No workspace name provided$(NC)"; \
+	fi
 
 ##@ Validation
 

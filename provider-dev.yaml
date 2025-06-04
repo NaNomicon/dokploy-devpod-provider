@@ -33,54 +33,31 @@ agent:
   driver: docker
   inactivityTimeout: 10m
 
-binaries:
-  DOKPLOY_PROVIDER_BINARY:
-    - os: linux
-      arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-linux-amd64
-      checksum: ""
-    - os: linux
-      arch: arm64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-linux-arm64
-      checksum: ""
-    - os: darwin
-      arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-darwin-amd64
-      checksum: ""
-    - os: darwin
-      arch: arm64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-darwin-arm64
-      checksum: ""
-    - os: windows
-      arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-windows-amd64.exe
-      checksum: ""
-
 exec:
   # Initialize the provider (test API connection)
   init: |-
-    ${DOKPLOY_PROVIDER_BINARY} init
+    ./dist/dokploy-provider init
 
   # Create a new machine/container in Dokploy
   create: |-
-    ${DOKPLOY_PROVIDER_BINARY} create
+    ./dist/dokploy-provider create
 
   # Delete the machine
   delete: |-
-    ${DOKPLOY_PROVIDER_BINARY} delete
+    ./dist/dokploy-provider delete
 
   # Start a stopped machine
   start: |-
-    ${DOKPLOY_PROVIDER_BINARY} start
+    ./dist/dokploy-provider start
 
   # Stop the machine
   stop: |-
-    ${DOKPLOY_PROVIDER_BINARY} stop
+    ./dist/dokploy-provider stop
 
   # Get machine status
   status: |-
-    ${DOKPLOY_PROVIDER_BINARY} status
+    ./dist/dokploy-provider status
 
   # Execute commands via SSH
   command: |-
-    ${DOKPLOY_PROVIDER_BINARY} command
+    ./dist/dokploy-provider command

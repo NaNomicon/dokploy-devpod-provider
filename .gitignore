@@ -45,3 +45,8 @@ coverage/
 local/
 dev/
 .local/ .env
+
+# Build artifacts
+dist/
+build/
+dokploy-provider

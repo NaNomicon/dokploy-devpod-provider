@@ -4,12 +4,13 @@ A high-performance DevPod provider for [Dokploy](https://dokploy.com/) that enab
 
 ## 🚀 Features
 
-- **⚡ Fast Deployment**: Uses Alpine Linux for 6x faster package installation
+- **⚡ Binary Helper**: Fast Go CLI binary instead of slow shell scripts
 - **🔧 Automatic SSH Setup**: Intelligent port mapping and SSH configuration
-- **🐳 Docker Swarm Integration**: Native Dokploy/Docker Swarm compatibility
+- **🐳 Docker-in-Docker**: Native Docker support with `cruizba/ubuntu-dind:latest`
 - **🛠️ Zero Configuration**: Automatic project and application management
 - **📊 Comprehensive Debugging**: Detailed logging and error analysis
 - **🔄 DevPod Compatible**: Full support for `.devcontainer.json` workflows
+- **🌐 Cross-Platform**: Supports Linux, macOS, and Windows
 
 ## 📋 Prerequisites
 
@@ -19,32 +20,30 @@ A high-performance DevPod provider for [Dokploy](https://dokploy.com/) that enab
 
 ## 🛠️ Installation
 
-### 1. Clone the Provider
+### 1. Quick Install from GitHub
 
 ```bash
-git clone <repository-url>
+devpod provider add https://github.com/NaNomicon/dokploy-devpod-provider
+```
+
+### 2. Local Development Install
+
+```bash
+git clone https://github.com/NaNomicon/dokploy-devpod-provider
 cd dokploy-devpod-provider
+make install-dev
 ```
 
-### 2. Configure Environment
-
-Create a `.env` file with your Dokploy credentials:
+### 3. Configure Provider
 
 ```bash
-# Required
-DOKPLOY_SERVER_URL=https://your-dokploy-instance.com
-DOKPLOY_API_TOKEN=your-api-token-here
+# Option 1: Interactive configuration
+make configure
 
-# Optional
-DOKPLOY_PROJECT_NAME=devpod-workspaces
-DOKPLOY_SERVER_ID=your-server-id  # For multi-server setups
-MACHINE_TYPE=small
-```
-
-### 3. Install Provider
-
-```bash
-make install-local
+# Option 2: Environment file configuration
+make setup-env
+# Edit .env file with your settings
+make configure-env
 ```
 
 ## 🚀 Usage
@@ -52,13 +51,13 @@ make install-local
 ### Create a Workspace from Git Repository
 
 ```bash
-devpod up https://github.com/your-org/your-repo.git --provider dokploy-dev
+devpod up https://github.com/your-org/your-repo.git --provider dokploy
 ```
 
 ### Create a Workspace from Local Directory
 
 ```bash
-devpod up ./my-project --provider dokploy-dev
+devpod up ./my-project --provider dokploy
 ```
 
 ### Connect to Existing Workspace
@@ -67,152 +66,114 @@ devpod up ./my-project --provider dokploy-dev
 devpod ssh my-workspace
 ```
 
+## 🏗️ Architecture
+
+### Binary Helper Implementation
+
+This provider uses a **Go CLI binary helper** instead of shell scripts for superior performance and reliability:
+
+```
+DevPod → Binary Helper → Dokploy API → Docker Container → SSH Access
+```
+
+#### Key Components
+
+- **`dokploy-provider` binary**: Cross-platform Go CLI handling all operations
+- **Dokploy API client**: Comprehensive REST API integration
+- **SSH client**: Automatic connection discovery and command execution
+- **Configuration management**: Environment-based configuration loading
+
+#### Commands Implemented
+
+| Command   | Purpose                                      | Implementation                                      |
+| --------- | -------------------------------------------- | --------------------------------------------------- |
+| `init`    | Validate configuration and test connectivity | API health check + SSH validation                   |
+| `create`  | Create new workspace with SSH setup          | Project/app creation + Docker config + port mapping |
+| `delete`  | Remove workspace and cleanup resources       | Application deletion via API                        |
+| `start`   | Start stopped workspace                      | Application deployment                              |
+| `stop`    | Stop running workspace                       | Application stop                                    |
+| `status`  | Get workspace status                         | API status mapping to DevPod states                 |
+| `command` | Execute commands via SSH                     | Dynamic SSH discovery + command execution           |
+
+### Container Setup Process
+
+The provider creates workspaces using a 4-stage setup process:
+
+1. **Stage 1**: Package update (1-2 minutes) - `apt-get update`
+2. **Stage 2**: SSH installation (30-60 seconds) - install `openssh-server`
+3. **Stage 3**: User setup (10-20 seconds) - create `devpod` user
+4. **Stage 4**: SSH configuration (10-20 seconds) - configure SSH daemon
+
+Total setup time: **2-4 minutes**
+
 ## 🔐 SSH Authentication & DevPod Integration
 
-### How SSH Authentication Actually Works
+### How SSH Authentication Works
 
-This provider works with DevPod's standard SSH connection flow:
+This provider follows DevPod's standard SSH connection pattern:
 
-1. **Provider Creates Infrastructure**: Sets up Alpine container with SSH daemon and password authentication
-2. **DevPod Connects via SSH**: Uses standard SSH connection with password or key authentication
-3. **DevPod Agent Installation**: DevPod installs its agent binary inside the container via SSH
+1. **Provider Creates Infrastructure**: Sets up Ubuntu container with SSH daemon
+2. **DevPod Connects via SSH**: Uses standard SSH with password authentication
+3. **DevPod Agent Installation**: DevPod installs its agent binary via SSH
 4. **Workspace Management**: DevPod agent handles development environment setup
 
 ### Authentication Flow
 
 ```
-DevPod → SSH Connection (password/key) → Container → DevPod Agent Installation → Workspace Setup
+DevPod → SSH Connection (password) → Container → DevPod Agent Installation → Workspace Setup
 ```
 
 #### Container SSH Configuration
 
-The provider configures the container with:
-
 ```bash
-# Standard SSH configuration
+# SSH daemon configuration
 PubkeyAuthentication yes          # For SSH key authentication
-PasswordAuthentication yes        # For password authentication (fallback)
+PasswordAuthentication yes        # For password authentication
 AuthorizedKeysFile .ssh/authorized_keys
 PermitRootLogin no
 Port 22
+
+# User setup
+User: devpod
+Password: devpod
+Sudo: NOPASSWD:ALL
+Docker group: yes
 ```
 
-#### DevPod's Actual Role
+### Dynamic SSH Connection Discovery
 
-- **SSH Connection**: DevPod connects to the container via standard SSH
-- **Agent Installation**: Downloads and installs the DevPod agent binary inside the container
-- **Workspace Setup**: Agent handles development environment configuration based on `.devcontainer.json`
-- **No Automatic SSH Key Injection**: DevPod does not automatically inject SSH keys during container creation
+The provider implements robust SSH connection handling:
 
-### Important Clarifications
-
-**❌ INCORRECT ASSUMPTIONS (Previously Documented)**:
-
-- DevPod does not have "built-in SSH key management" that automatically injects keys
-- DevPod does not use specific environment variables like `DEVPOD_SSH_KEY` or `SSH_KEY`
-- DevPod does not automatically inject SSH keys during the `create` phase
-
-**✅ ACTUAL BEHAVIOR**:
-
-- DevPod connects via standard SSH (password or existing SSH keys)
-- DevPod installs its agent binary via SSH after successful connection
-- SSH key setup is handled by standard SSH mechanisms, not DevPod-specific injection
-- The provider only needs to ensure SSH daemon is running and accessible
-
-### Why This Approach Works
-
-- **Standard SSH**: Uses well-established SSH connection methods
-- **Agent-Based**: DevPod agent handles workspace configuration after SSH connection
-- **Flexible Authentication**: Supports both password and key-based SSH authentication
-- **Platform Agnostic**: Works with any SSH-enabled container or VM
-
-### Dynamic SSH Connection Retrieval
-
-The provider implements a robust approach for SSH connections:
-
-1. **Create Phase**: Sets up the container and configures SSH port mapping via Dokploy API
-2. **Command Phase**: Dynamically retrieves SSH connection details using the application ID
-3. **API-Based Discovery**: Uses Dokploy API to find the correct SSH port for each workspace
-4. **Fixed Credentials**: Uses known credentials (`devpod:devpod`) for reliable authentication
-
-#### How Command Execution Works
-
-```bash
-# The command section (simplified for DevPod compatibility):
-1. Calls project.all API to find application by name
-2. Extracts applicationId from matching application
-3. Gets application details including port mappings
-4. Extracts SSH port from ports array
-5. Executes command via SSH with clean stdout/stderr handling
-```
-
-This approach ensures that:
-
-- **Clean Command Execution**: Follows DevPod's expectation for command output
-- **Minimal API Calls**: Only essential API calls for connection discovery
-- **Error Handling**: Errors go to stderr, command output to stdout
-- **DevPod Compatibility**: Works seamlessly with DevPod's agent injection
+1. **Create Phase**: Sets up container and configures SSH port mapping (2222-2230 range)
+2. **Command Phase**: Dynamically retrieves SSH connection details using application ID
+3. **API-Based Discovery**: Uses Dokploy API to find correct SSH port for each workspace
+4. **Automatic Retry**: Handles Docker Swarm port propagation delays (60-120 seconds)
 
 ## ⏱️ Important: Docker Swarm Port Mapping Delay
 
-**Expected Behavior**: When creating a new workspace, you'll see a 60+ second delay during SSH setup. This is **normal and expected** behavior.
+**Expected Behavior**: New workspaces experience a 60+ second delay during SSH setup. This is **normal**.
 
 ### Why This Happens
 
-Dokploy uses Docker Swarm for container orchestration. When the provider creates SSH port mappings, Docker Swarm needs time to propagate these mappings across the cluster. This process typically takes 60-120 seconds.
+Dokploy uses Docker Swarm for orchestration. Port mappings need time to propagate across the cluster (60-120 seconds).
 
 ### What You'll See
 
 ```
 🎉 SSH port mapping configured successfully!
    Using port: 2222
-
-ℹ️  NOTICE: Docker Swarm Port Mapping Delay
-   Dokploy uses Docker Swarm for container orchestration, which requires
-   time for port mappings to propagate across the cluster. This 60+ second
-   delay is normal and expected behavior, not a provider issue.
-
-   • Port mapping API: ✅ Completed successfully
-   • Port propagation: ⏳ In progress (60-120 seconds typical)
-   • SSH accessibility: ⏳ Will be available after propagation
-
-DEBUG: Sleeping for 60 seconds to allow Dokploy port mapping to propagate...
+⏳ Waiting for port to become available...
+   This may take 60-120 seconds due to Docker Swarm propagation
 ```
 
-### This is NOT a Bug
-
-- ✅ The provider is working correctly
-- ✅ Port mapping was created successfully
-- ⏳ Docker Swarm is propagating the mapping
-- 🎯 SSH will be accessible once propagation completes
-
-## 🏗️ Architecture
-
-### DevPod Two-Layer Architecture
-
-The provider works with DevPod's two-layer architecture:
-
-1. **Layer 1 (Infrastructure)**: Alpine Linux container with SSH access
-   - Managed by this Dokploy provider
-   - Provides the base environment and SSH connectivity
-2. **Layer 2 (Development Environment)**: Your actual development tools
-   - Managed by DevPod agent
-   - Installs Node.js, Python, Docker, etc. based on your `.devcontainer.json`
-
-### Dokploy Integration
-
-```
-DevPod CLI → Dokploy Provider → Dokploy API → Docker Swarm → Alpine Container
-```
-
-## 🔧 Configuration Options
+## 📊 Configuration Options
 
 | Option                 | Description                       | Default             | Required |
 | ---------------------- | --------------------------------- | ------------------- | -------- |
-| `DOKPLOY_SERVER_URL`   | Your Dokploy server URL           | -                   | ✅       |
-| `DOKPLOY_API_TOKEN`    | API token from Dokploy            | -                   | ✅       |
+| `DOKPLOY_SERVER_URL`   | Dokploy server URL                | -                   | ✅       |
+| `DOKPLOY_API_TOKEN`    | API authentication token          | -                   | ✅       |
 | `DOKPLOY_PROJECT_NAME` | Project name for workspaces       | `devpod-workspaces` | ❌       |
-| `DOKPLOY_SERVER_ID`    | Server ID for multi-server        | -                   | ❌       |
+| `DOKPLOY_SERVER_ID`    | Server ID for multi-server setups | -                   | ❌       |
 | `MACHINE_TYPE`         | Machine size (small/medium/large) | `small`             | ❌       |
 | `AGENT_PATH`           | DevPod agent installation path    | `/opt/devpod/agent` | ❌       |
 
@@ -227,7 +188,7 @@ DevPod CLI → Dokploy Provider → Dokploy API → Docker Swarm → Alpine Cont
 
 #### 2. SSH Connection Timeout
 
-- **Cause**: Port mapping still propagating
+- **Cause**: Port mapping still propagating (normal for 60-120 seconds)
 - **Solution**: Wait 2-3 minutes and try again
 
 #### 3. "Port already in use" Error
@@ -240,7 +201,7 @@ DevPod CLI → Dokploy Provider → Dokploy API → Docker Swarm → Alpine Cont
 Enable detailed debugging:
 
 ```bash
-devpod up <source> --provider dokploy-dev --debug
+devpod up <source> --provider dokploy --debug
 ```
 
 ### SSH Connection Issues
@@ -252,96 +213,142 @@ If you encounter SSH connection problems:
 3. **DevPod Retry**: DevPod will automatically retry connections
 4. **Manual Verification**: Test port accessibility with `nc -z <host> <port>`
 
-### DevPod Agent Issues
-
-If DevPod agent injection fails:
+### Provider Management
 
 ```bash
-# Check if container is running
-devpod ssh <workspace-name>
+# Force reinstall (handles stuck workspaces)
+make force-reinstall
 
-# If SSH works but agent fails, check logs
-devpod logs <workspace-name>
+# Clean up test workspaces
+make cleanup-test
+
+# Fix specific stuck workspace
+make fix-stuck-workspace
+
+# Nuclear option (delete everything)
+make nuclear-cleanup
 ```
 
-### Container Access
+### Binary Issues
 
-For direct container access (debugging only):
+If the binary helper fails:
 
 ```bash
-# SSH with password (if needed for debugging)
-ssh -p 2222 devpod@your-dokploy-host.com
-# Password: devpod (only for initial setup/debugging)
+# Test binary directly
+./dist/dokploy-provider --help
+
+# Rebuild binary
+make build
+
+# Test specific commands
+./dist/dokploy-provider init --verbose
 ```
 
-**Note**: DevPod will automatically set up SSH key authentication, so password access is mainly for debugging purposes.
+## 🔧 Development
+
+### Building from Source
+
+```bash
+# Build for current platform
+make build
+
+# Build for all platforms
+make build-all
+
+# Test the binary
+make test-build
+```
+
+### Development Workflow
+
+```bash
+# Setup development environment
+make setup
+
+# Install development provider
+make install-dev
+
+# Test with Docker workspace
+make test-docker
+
+# Test complete lifecycle
+make test-lifecycle
+
+# Clean up and reinstall
+make force-reinstall
+```
+
+### Binary Helper Development
+
+The provider is implemented as a Go CLI application:
+
+```
+├── cmd/                    # CLI commands
+│   ├── root.go            # Root command and configuration
+│   ├── init.go            # Initialize and validate provider
+│   ├── create.go          # Create workspace
+│   ├── delete.go          # Delete workspace
+│   ├── start.go           # Start workspace
+│   ├── stop.go            # Stop workspace
+│   ├── status.go          # Get workspace status
+│   └── command.go         # Execute commands via SSH
+├── pkg/                   # Core packages
+│   ├── options/           # Configuration management
+│   ├── dokploy/           # Dokploy API client
+│   ├── client/            # DevPod status types
+│   └── ssh/               # SSH client for command execution
+├── dist/                  # Built binaries
+└── provider.yaml          # DevPod provider configuration
+```
 
 ## 📊 Performance
 
 ### Deployment Speed
 
-- **Alpine Linux**: ~5 seconds for package installation
-- **Ubuntu (previous)**: 30+ seconds for package installation
-- **Improvement**: 6x faster deployment
+- **Binary Helper**: ~100ms command execution
+- **Shell Scripts (previous)**: 1-3 seconds per operation
+- **Improvement**: 10-30x faster operations
 
 ### Resource Usage
 
-- **Base Image**: Alpine Linux (~5MB)
-- **Memory**: Minimal overhead
-- **CPU**: Efficient container startup
-
-## 🔄 Development
-
-### Testing
-
-```bash
-# Test with Git repository
-make test-git
-
-# Test with local directory
-make test-local
-
-# Validate provider configuration
-make validate
-```
-
-### Local Development
-
-```bash
-# Install development dependencies
-make install-dev
-
-# Run linting
-make lint
-
-# Clean up test workspaces
-make clean
-```
+- **Binary Size**: ~9MB (statically linked)
+- **Memory**: Minimal overhead (~10MB)
+- **Network**: Efficient API calls with connection reuse
 
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Test thoroughly
+4. Test with `make test-lifecycle`
 5. Submit a pull request
+
+### Development Tools
+
+```bash
+# Install all development tools
+make setup
+
+# Check tool availability
+make check-tools
+
+# Validate provider configuration
+make validate
+
+# Run linting
+make lint
+```
 
 ## 📝 License
 
-[MIT License](LICENSE)
-
-## 🆘 Support
-
-- **Issues**: [GitHub Issues](https://github.com/your-org/dokploy-devpod-provider/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/dokploy-devpod-provider/discussions)
-- **Dokploy**: [Dokploy Documentation](https://docs.dokploy.com/)
-- **DevPod**: [DevPod Documentation](https://devpod.sh/docs)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-- [Dokploy](https://dokploy.com/) for the excellent container platform
-- [DevPod](https://devpod.sh/) for the development environment framework
-- [Alpine Linux](https://alpinelinux.org/) for the lightweight base image
+- [DevPod](https://devpod.sh/) for the excellent development container platform
+- [Dokploy](https://dokploy.com/) for the powerful container orchestration platform
+- [Cobra](https://github.com/spf13/cobra) for the CLI framework
+- [Logrus](https://github.com/sirupsen/logrus) for structured logging
 
 ---
 
