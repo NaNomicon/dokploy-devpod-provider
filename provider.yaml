@@ -44,17 +44,17 @@ exec:
       exit 1
     fi
 
-    # Test connection to Dokploy API
-    echo "Testing Dokploy API connection..."
+    # Test connection to Dokploy Swagger
+    echo "Testing Dokploy Swagger connection..."
     if ! curl -s -f "${DOKPLOY_SERVER_URL}/api/settings.health" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" >/dev/null 2>&1; then
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" >/dev/null 2>&1; then
       echo "Error: Cannot connect to Dokploy server or invalid API token"
       echo "Please check:"
       echo "1. Server URL: ${DOKPLOY_SERVER_URL}"
       echo "2. API token is valid and generated from Settings > Profile > API/CLI"
       exit 1
     fi
-    echo "✓ Dokploy API connection successful"
+    echo "✓ Dokploy Swagger connection successful"
 
     # Test SSH connection if we have a machine ID (for existing workspaces)
     if [ -n "${MACHINE_ID}" ]; then
@@ -62,7 +62,7 @@ exec:
       
       # Get application details to test SSH connectivity
       PROJECTS_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/project.all" \
-        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+        -H "x-api-key: ${DOKPLOY_API_TOKEN}")
       
       if [ $? -eq 0 ]; then
         APPLICATION_ID=$(echo "$PROJECTS_RESPONSE" | jq -r --arg name "${MACHINE_ID}" '
@@ -71,7 +71,7 @@ exec:
         
         if [ -n "$APPLICATION_ID" ] && [ "$APPLICATION_ID" != "null" ]; then
           API_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${APPLICATION_ID}" \
-            -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+            -H "x-api-key: ${DOKPLOY_API_TOKEN}")
           
           SSH_PORT=$(echo "$API_RESPONSE" | jq -r '.ports[]? | select(.targetPort == 22) | .publishedPort' | head -n1)
           SSH_HOST="${DOKPLOY_SERVER_URL#*://}"  # Remove protocol
@@ -116,7 +116,7 @@ exec:
     # Check if project exists, create if it doesn't
     echo "Checking if project '${DOKPLOY_PROJECT_NAME}' exists..."
     PROJECT_CHECK=$(curl -s "${DOKPLOY_SERVER_URL}/api/project.all" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r --arg name "${DOKPLOY_PROJECT_NAME}" '.[] | select(.name == $name) | .projectId')
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" | jq -r --arg name "${DOKPLOY_PROJECT_NAME}" '.[] | select(.name == $name) | .projectId')
 
     if [ -z "$PROJECT_CHECK" ]; then
       echo "Project '${DOKPLOY_PROJECT_NAME}' not found. Creating project..."
@@ -130,7 +130,7 @@ exec:
     )
 
       PROJECT_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/project.create" \
-        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+        -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "$PROJECT_DATA")
 
@@ -165,7 +165,7 @@ exec:
 
     # Create the application
     RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.create" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "$APP_DATA")
 
@@ -195,7 +195,7 @@ exec:
     )
 
     DOCKER_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.saveDockerProvider" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "$DOCKER_DATA")
 
@@ -218,7 +218,7 @@ exec:
     )
 
     ENV_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.saveEnvironment" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "$ENV_DATA")
 
@@ -238,7 +238,7 @@ exec:
     UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'apt-get update && apt-get install -y openssh-server sudo && useradd -m -s /bin/bash devpod && echo \\\"devpod:devpod\\\" | chpasswd && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && usermod -aG docker devpod && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && mkdir -p /run/sshd && ssh-keygen -A && echo \\\"PubkeyAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"AuthorizedKeysFile .ssh/authorized_keys\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"PermitRootLogin no\\\" >> /etc/ssh/sshd_config && echo \\\"Port 22\\\" >> /etc/ssh/sshd_config && echo \\\"DevPod-ready Ubuntu container with Docker-in-Docker\\\" && exec /usr/sbin/sshd -D -e'\"}"
 
     UPDATE_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.update" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "$UPDATE_DATA")
 
@@ -255,7 +255,7 @@ exec:
     echo "NOTE: Using Ubuntu Docker-in-Docker container with pre-installed Docker"
     echo "      DevPod will connect via SSH and inject its agent automatically"
     DEPLOY_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "{\"applicationId\": \"$APP_ID\"}")
 
@@ -271,7 +271,7 @@ exec:
     echo "Waiting for deployment to complete..."
     for i in $(seq 1 60); do
       STATUS=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=$APP_ID" \
-        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
+        -H "x-api-key: ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
       
       if [ "$STATUS" = "done" ]; then
         echo "✓ Deployment completed successfully"
@@ -286,7 +286,7 @@ exec:
     done
 
     # Automatically configure SSH port mapping via API
-    echo "Configuring SSH port mapping via Dokploy API..."
+    echo "Configuring SSH port mapping via Dokploy Swagger..."
 
     # Extract Dokploy host from server URL using shell parameter expansion
     SSH_HOST="${DOKPLOY_SERVER_URL#*://}"  # Remove protocol
@@ -294,7 +294,7 @@ exec:
     SSH_HOST="${SSH_HOST%%:*}"             # Remove port
 
     # Simple approach: try ports one by one until we find one that works
-    # Note: Dokploy API doesn't have a port.all endpoint to check existing ports,
+    # Note: Dokploy Swagger doesn't have a port.all endpoint to check existing ports,
     # and Docker Swarm can have silent port conflicts, so we need to verify actual accessibility
     SSH_HOST_PORT=""
     PORT_CREATED=false
@@ -353,7 +353,7 @@ exec:
       echo "DEBUG: Request data: $PORT_DATA"
       
       PORT_RESPONSE=$(curl -s -w "HTTPSTATUS:%{http_code}" -X POST "${DOKPLOY_SERVER_URL}/api/port.create" \
-        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+        -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "$PORT_DATA")
       
@@ -432,7 +432,7 @@ exec:
           fi
         fi
       else
-        # HTTP error - extract error message from Dokploy API response format
+        # HTTP error - extract error message from Dokploy Swagger response format
         ERROR_MSG=$(echo "$RESPONSE_BODY" | jq -r '.message // "HTTP error"' 2>/dev/null)
         ERROR_CODE=$(echo "$RESPONSE_BODY" | jq -r '.code // ""' 2>/dev/null)
         
@@ -462,7 +462,7 @@ exec:
       # Redeploy to apply the port mapping
       echo "Redeploying application to apply port mapping..."
       curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
-        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+        -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "{\"applicationId\": \"$APP_ID\"}" >/dev/null
 
@@ -470,7 +470,7 @@ exec:
       echo "Waiting for redeployment to complete..."
       for i in $(seq 1 30); do
         STATUS=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=$APP_ID" \
-          -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
+          -H "x-api-key: ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
         
         if [ "$STATUS" = "done" ]; then
           echo "✓ Redeployment completed successfully"
@@ -695,7 +695,7 @@ exec:
 
     # Delete the application
     curl -s -X DELETE "${DOKPLOY_SERVER_URL}/api/application.remove" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "{\"applicationId\": \"${DEVPOD_MACHINE_ID}\"}"
 
@@ -712,7 +712,7 @@ exec:
 
     # Start the application
     curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.start" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "{\"applicationId\": \"${DEVPOD_MACHINE_ID}\"}"
 
@@ -729,7 +729,7 @@ exec:
 
     # Stop the application
     curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.stop" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
       -d "{\"applicationId\": \"${DEVPOD_MACHINE_ID}\"}"
 
@@ -745,12 +745,12 @@ exec:
       exit 0
     fi
 
-    echo "DEBUG: Calling Dokploy API..." >&2
+    echo "DEBUG: Calling Dokploy Swagger..." >&2
     echo "DEBUG: URL: ${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${DEVPOD_MACHINE_ID}" >&2
 
     # Get application status with debug output
     API_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${DEVPOD_MACHINE_ID}" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}")
 
     echo "DEBUG: Raw API response: $API_RESPONSE" >&2
 
@@ -783,10 +783,10 @@ exec:
   command: |-
     # Get all projects and applications to find the application by name
     PROJECTS_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/project.all" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}")
 
     if [ $? -ne 0 ]; then
-      echo "Error: Failed to retrieve projects from Dokploy API" >&2
+      echo "Error: Failed to retrieve projects from Dokploy Swagger" >&2
       exit 1
     fi
 
@@ -802,7 +802,7 @@ exec:
 
     # Get application details including port mappings
     API_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${APPLICATION_ID}" \
-      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+      -H "x-api-key: ${DOKPLOY_API_TOKEN}")
 
     if [ $? -ne 0 ]; then
       echo "Error: Failed to retrieve application details" >&2
