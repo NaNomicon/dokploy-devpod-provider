@@ -56,6 +56,57 @@ exec:
     fi
     echo "✓ Dokploy API connection successful"
 
+    # Test SSH connection if we have a machine ID (for existing workspaces)
+    if [ -n "${MACHINE_ID}" ]; then
+      echo "Testing SSH connection to existing workspace..."
+      
+      # Get application details to test SSH connectivity
+      PROJECTS_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/project.all" \
+        -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+      
+      if [ $? -eq 0 ]; then
+        APPLICATION_ID=$(echo "$PROJECTS_RESPONSE" | jq -r --arg name "${MACHINE_ID}" '
+          .[] | .applications[]? | select(.name == $name) | .applicationId
+        ' | head -n1)
+        
+        if [ -n "$APPLICATION_ID" ] && [ "$APPLICATION_ID" != "null" ]; then
+          API_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${APPLICATION_ID}" \
+            -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+          
+          SSH_PORT=$(echo "$API_RESPONSE" | jq -r '.ports[]? | select(.targetPort == 22) | .publishedPort' | head -n1)
+          SSH_HOST="${DOKPLOY_SERVER_URL#*://}"  # Remove protocol
+          SSH_HOST="${SSH_HOST%%/*}"             # Remove path
+          SSH_HOST="${SSH_HOST%%:*}"             # Remove port
+          
+          if [ -n "$SSH_PORT" ] && [ "$SSH_PORT" != "null" ]; then
+            echo "Testing SSH connectivity to ${SSH_HOST}:${SSH_PORT}..."
+            
+            # Require sshpass for SSH testing
+            if ! command -v sshpass >/dev/null 2>&1; then
+              echo "⚠️  sshpass not available, skipping SSH connectivity test"
+            else
+              # Test SSH connection with a simple echo command
+              OUTPUT=$(sshpass -p "devpod" ssh -o StrictHostKeyChecking=no \
+                       -o UserKnownHostsFile=/dev/null \
+                       -o ConnectTimeout=10 \
+                       -o PreferredAuthentications=password \
+                       -o PasswordAuthentication=yes \
+                       -o PubkeyAuthentication=no \
+                       -p "${SSH_PORT}" \
+                       "devpod@${SSH_HOST}" \
+                       'echo "DevPodTest"' 2>/dev/null)
+              
+              if [ "$OUTPUT" = "DevPodTest" ]; then
+                echo "✓ SSH connection test successful"
+              else
+                echo "⚠️  SSH connection test failed, but continuing (workspace may still be starting)"
+              fi
+            fi
+          fi
+        fi
+      fi
+    fi
+
     echo "Dokploy provider initialized successfully"
 
   # Create a new machine/container in Dokploy
@@ -138,7 +189,7 @@ exec:
     DOCKER_DATA=$(cat <<EOF
     {
       "applicationId": "${APP_ID}",
-      "dockerImage": "alpine:latest"
+      "dockerImage": "cruizba/ubuntu-dind:latest"
     }
     EOF
     )
@@ -182,8 +233,9 @@ exec:
     # Update application with SSH setup command
     echo "Configuring application for SSH access..."
 
-    # Simplified SSH setup - let DevPod handle key injection through its agent
-    UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'apk add --no-cache openssh-server sudo bash curl && adduser -D -s /bin/bash devpod && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && ssh-keygen -A && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && echo \\\"PubkeyAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"AuthorizedKeysFile .ssh/authorized_keys\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"PermitRootLogin no\\\" >> /etc/ssh/sshd_config && echo \\\"Port 22\\\" >> /etc/ssh/sshd_config && mkdir -p /run/sshd && echo \\\"SSH setup complete, starting daemon...\\\" && exec /usr/sbin/sshd -D -e'\"}"
+    # Use cruizba/ubuntu-dind which has Docker pre-installed and running
+    # Just need to set up the devpod user and configure SSH
+    UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'apt-get update && apt-get install -y openssh-server sudo && useradd -m -s /bin/bash devpod && echo \\\"devpod:devpod\\\" | chpasswd && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && usermod -aG docker devpod && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && mkdir -p /run/sshd && ssh-keygen -A && echo \\\"PubkeyAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"AuthorizedKeysFile .ssh/authorized_keys\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"PermitRootLogin no\\\" >> /etc/ssh/sshd_config && echo \\\"Port 22\\\" >> /etc/ssh/sshd_config && echo \\\"DevPod-ready Ubuntu container with Docker-in-Docker\\\" && exec /usr/sbin/sshd -D -e'\"}"
 
     UPDATE_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.update" \
       -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
@@ -200,8 +252,8 @@ exec:
 
     # Deploy the application with SSH configuration
     echo "Deploying application with SSH configuration..."
-    echo "NOTE: Container configured with both password and key authentication"
-    echo "      DevPod will inject SSH keys automatically when connecting"
+    echo "NOTE: Using Ubuntu Docker-in-Docker container with pre-installed Docker"
+    echo "      DevPod will connect via SSH and inject its agent automatically"
     DEPLOY_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
       -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
@@ -236,10 +288,10 @@ exec:
     # Automatically configure SSH port mapping via API
     echo "Configuring SSH port mapping via Dokploy API..."
 
-    # Extract server information for SSH connection (needed for port testing)
-    DOKPLOY_HOST="${DOKPLOY_SERVER_URL#*://}"
-    DOKPLOY_HOST="${DOKPLOY_HOST%%/*}"  # Remove path if present
-    DOKPLOY_HOST="${DOKPLOY_HOST%%:*}"  # Remove port if present
+    # Extract Dokploy host from server URL using shell parameter expansion
+    SSH_HOST="${DOKPLOY_SERVER_URL#*://}"  # Remove protocol
+    SSH_HOST="${SSH_HOST%%/*}"             # Remove path
+    SSH_HOST="${SSH_HOST%%:*}"             # Remove port
 
     # Simple approach: try ports one by one until we find one that works
     # Note: Dokploy API doesn't have a port.all endpoint to check existing ports,
@@ -248,7 +300,7 @@ exec:
     PORT_CREATED=false
     echo "Searching for available SSH port (trying ports 2222-2230)..."
     echo "DEBUG: Starting port allocation loop..."
-    echo "DEBUG: Will test port accessibility on host: $DOKPLOY_HOST"
+    echo "DEBUG: Will test port accessibility on host: $SSH_HOST"
 
     for port in 2222 2223 2224 2225 2226 2227 2228 2229 2230; do
       echo "DEBUG: === Trying port $port ==="
@@ -263,7 +315,7 @@ exec:
       echo "Trying port $port..."
       
       # Pre-check: Test if port is already in use before API call
-      echo "DEBUG: Pre-checking port availability on $DOKPLOY_HOST:$port..."
+      echo "DEBUG: Pre-checking port availability on $SSH_HOST:$port..."
       PORT_PRECHECK_AVAILABLE=false
       
       # Test if SSH daemon is responding on this port (more accurate than nc/telnet)
@@ -271,7 +323,7 @@ exec:
                                -o UserKnownHostsFile=/dev/null \
                                -o ConnectTimeout=3 \
                                -o PreferredAuthentications=none \
-                               -p "$port" "test@$DOKPLOY_HOST" 2>&1 || true)
+                               -p "$port" "test@$SSH_HOST" 2>&1 || true)
       
       # If we get any SSH-related response, the port is in use by SSH
       if echo "$SSH_PRECHECK_OUTPUT" | grep -q "Permission denied\|publickey\|password\|Connection closed\|SSH\|OpenSSH"; then
@@ -449,8 +501,8 @@ exec:
       exit 1
     fi
 
-    # Set SSH connection variables (DOKPLOY_HOST already extracted earlier)
-    SSH_HOST="$DOKPLOY_HOST"
+    # Set SSH connection variables (SSH_HOST already extracted earlier)
+    SSH_HOST="$SSH_HOST"
     SSH_PORT="$SSH_HOST_PORT"
 
     echo ""
@@ -617,11 +669,13 @@ exec:
     echo "- SSH Port: $SSH_PORT"
     echo "- SSH User: devpod"
     echo "- SSH Auth: Hybrid (password + key) - DevPod will inject keys automatically"
+    echo "- Base Image: cruizba/ubuntu-dind (Ubuntu with Docker-in-Docker)"
     echo "- Dokploy Dashboard: $DOKPLOY_SERVER_URL"
     echo ""
     echo "Next Steps:"
     echo "- DevPod will connect via SSH and inject its agent"
     echo "- The agent will handle authentication, credentials, and workspace setup"
+    echo "- Docker is pre-installed and ready for development containers"
     echo "- Container will auto-shutdown after inactivity (10m configured)"
 
     # Return connection info to DevPod (MUST BE LAST OUTPUT)
@@ -727,17 +781,65 @@ exec:
 
   # Execute commands via SSH
   command: |-
-    if [ -z "${DEVPOD_MACHINE_HOST}" ] || [ -z "${DEVPOD_MACHINE_PORT}" ]; then
-      echo "Error: Machine connection details not available"
+    # Get all projects and applications to find the application by name
+    PROJECTS_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/project.all" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to retrieve projects from Dokploy API" >&2
       exit 1
     fi
 
-    # Execute command via SSH
-    ssh -o StrictHostKeyChecking=no \
+    # Find the application with matching name (MACHINE_ID is the application name)
+    APPLICATION_ID=$(echo "$PROJECTS_RESPONSE" | jq -r --arg name "${MACHINE_ID}" '
+      .[] | .applications[]? | select(.name == $name) | .applicationId
+    ' | head -n1)
+
+    if [ -z "$APPLICATION_ID" ] || [ "$APPLICATION_ID" = "null" ]; then
+      echo "Error: No application found with name '${MACHINE_ID}'" >&2
+      exit 1
+    fi
+
+    # Get application details including port mappings
+    API_RESPONSE=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=${APPLICATION_ID}" \
+      -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}")
+
+    if [ $? -ne 0 ]; then
+      echo "Error: Failed to retrieve application details" >&2
+      exit 1
+    fi
+
+    # Extract SSH port mapping from the ports array
+    SSH_PORT=$(echo "$API_RESPONSE" | jq -r '.ports[]? | select(.targetPort == 22) | .publishedPort' | head -n1)
+
+    if [ -z "$SSH_PORT" ] || [ "$SSH_PORT" = "null" ]; then
+      echo "Error: No SSH port mapping found for application" >&2
+      exit 1
+    fi
+
+    # Extract Dokploy host from server URL using shell parameter expansion
+    SSH_HOST="${DOKPLOY_SERVER_URL#*://}"  # Remove protocol
+    SSH_HOST="${SSH_HOST%%/*}"             # Remove path
+    SSH_HOST="${SSH_HOST%%:*}"             # Remove port
+
+    # Execute command via SSH using sshpass for password authentication
+    if ! command -v sshpass >/dev/null 2>&1; then
+      echo "Error: sshpass is required for password authentication" >&2
+      echo "Please install sshpass:" >&2
+      echo "  macOS: brew install hudochenkov/sshpass/sshpass" >&2
+      echo "  Ubuntu/Debian: sudo apt-get install sshpass" >&2
+      echo "  CentOS/RHEL: sudo yum install sshpass" >&2
+      exit 1
+    fi
+
+    sshpass -p "devpod" ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=30 \
         -o ServerAliveInterval=5 \
         -o ServerAliveCountMax=3 \
-        -p "${DEVPOD_MACHINE_PORT}" \
-        "${DEVPOD_MACHINE_USER}@${DEVPOD_MACHINE_HOST}" \
+        -o PreferredAuthentications=password \
+        -o PasswordAuthentication=yes \
+        -o PubkeyAuthentication=no \
+        -p "${SSH_PORT}" \
+        "devpod@${SSH_HOST}" \
         "${COMMAND}"

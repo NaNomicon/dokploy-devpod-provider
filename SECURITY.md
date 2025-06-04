@@ -68,7 +68,7 @@ The provider implements secure SSH access:
 # Secure SSH setup in containers
 - Creates dedicated `devpod` user with limited privileges
 - Configures SSH with secure defaults
-- Uses SSH key-based authentication when available
+- Supports both password and SSH key authentication
 - Implements proper user isolation and sudo access
 ```
 
@@ -100,7 +100,7 @@ When using this provider:
 - **Vulnerability Scanning**: Regularly scan images for known vulnerabilities
 - **Resource Limits**: Implement CPU and memory limits to prevent DoS
 - **User Privileges**: Containers run with non-root users when possible
-- **SSH Hardening**: SSH configured with secure defaults and key-based auth
+- **SSH Hardening**: SSH configured with secure defaults and standard authentication
 
 ### Access Control and Authentication
 
@@ -151,7 +151,7 @@ When using this provider:
 - **Risk**: Unauthorized access to workspace data
 - **Mitigation**:
   - Proper user isolation in containers
-  - SSH key-based authentication when available
+  - Standard SSH authentication (password and key support)
   - Workspace cleanup on deletion
   - Volume encryption when supported by Dokploy
 

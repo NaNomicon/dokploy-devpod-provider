@@ -69,19 +69,19 @@ devpod ssh my-workspace
 
 ## 🔐 SSH Authentication & DevPod Integration
 
-### How SSH Authentication Works
+### How SSH Authentication Actually Works
 
-This provider is designed to work seamlessly with DevPod's built-in SSH authentication system:
+This provider works with DevPod's standard SSH connection flow:
 
-1. **Provider Creates Infrastructure**: Sets up Alpine container with SSH daemon and hybrid authentication
-2. **DevPod Connects**: Uses its built-in SSH key management to connect to the container
-3. **Agent Injection**: DevPod automatically injects its agent and SSH keys
+1. **Provider Creates Infrastructure**: Sets up Alpine container with SSH daemon and password authentication
+2. **DevPod Connects via SSH**: Uses standard SSH connection with password or key authentication
+3. **DevPod Agent Installation**: DevPod installs its agent binary inside the container via SSH
 4. **Workspace Management**: DevPod agent handles development environment setup
 
 ### Authentication Flow
 
 ```
-DevPod → SSH Connection → Container (hybrid auth) → Agent Injection → SSH Keys → Secure Connection
+DevPod → SSH Connection (password/key) → Container → DevPod Agent Installation → Workspace Setup
 ```
 
 #### Container SSH Configuration
@@ -89,26 +89,69 @@ DevPod → SSH Connection → Container (hybrid auth) → Agent Injection → SS
 The provider configures the container with:
 
 ```bash
-# Hybrid authentication support
-PubkeyAuthentication yes          # For DevPod's SSH keys
-PasswordAuthentication yes        # For initial connection
+# Standard SSH configuration
+PubkeyAuthentication yes          # For SSH key authentication
+PasswordAuthentication yes        # For password authentication (fallback)
 AuthorizedKeysFile .ssh/authorized_keys
 PermitRootLogin no
+Port 22
 ```
 
-#### DevPod's Role
+#### DevPod's Actual Role
 
-- **SSH Key Generation**: DevPod automatically generates or uses existing SSH keys
-- **Key Injection**: Injects public keys into `/home/devpod/.ssh/authorized_keys`
-- **Agent Deployment**: Installs DevPod agent for workspace management
-- **Credential Forwarding**: Handles Git credentials, Docker credentials, etc.
+- **SSH Connection**: DevPod connects to the container via standard SSH
+- **Agent Installation**: Downloads and installs the DevPod agent binary inside the container
+- **Workspace Setup**: Agent handles development environment configuration based on `.devcontainer.json`
+- **No Automatic SSH Key Injection**: DevPod does not automatically inject SSH keys during container creation
+
+### Important Clarifications
+
+**❌ INCORRECT ASSUMPTIONS (Previously Documented)**:
+
+- DevPod does not have "built-in SSH key management" that automatically injects keys
+- DevPod does not use specific environment variables like `DEVPOD_SSH_KEY` or `SSH_KEY`
+- DevPod does not automatically inject SSH keys during the `create` phase
+
+**✅ ACTUAL BEHAVIOR**:
+
+- DevPod connects via standard SSH (password or existing SSH keys)
+- DevPod installs its agent binary via SSH after successful connection
+- SSH key setup is handled by standard SSH mechanisms, not DevPod-specific injection
+- The provider only needs to ensure SSH daemon is running and accessible
 
 ### Why This Approach Works
 
-- **No Manual SSH Setup**: DevPod handles all SSH key management automatically
-- **Secure by Default**: Uses SSH keys for ongoing connections
-- **Fallback Support**: Password authentication available if needed
-- **Platform Agnostic**: Works across different development environments
+- **Standard SSH**: Uses well-established SSH connection methods
+- **Agent-Based**: DevPod agent handles workspace configuration after SSH connection
+- **Flexible Authentication**: Supports both password and key-based SSH authentication
+- **Platform Agnostic**: Works with any SSH-enabled container or VM
+
+### Dynamic SSH Connection Retrieval
+
+The provider implements a robust approach for SSH connections:
+
+1. **Create Phase**: Sets up the container and configures SSH port mapping via Dokploy API
+2. **Command Phase**: Dynamically retrieves SSH connection details using the application ID
+3. **API-Based Discovery**: Uses Dokploy API to find the correct SSH port for each workspace
+4. **Fixed Credentials**: Uses known credentials (`devpod:devpod`) for reliable authentication
+
+#### How Command Execution Works
+
+```bash
+# The command section (simplified for DevPod compatibility):
+1. Calls project.all API to find application by name
+2. Extracts applicationId from matching application
+3. Gets application details including port mappings
+4. Extracts SSH port from ports array
+5. Executes command via SSH with clean stdout/stderr handling
+```
+
+This approach ensures that:
+
+- **Clean Command Execution**: Follows DevPod's expectation for command output
+- **Minimal API Calls**: Only essential API calls for connection discovery
+- **Error Handling**: Errors go to stderr, command output to stdout
+- **DevPod Compatibility**: Works seamlessly with DevPod's agent injection
 
 ## ⏱️ Important: Docker Swarm Port Mapping Delay
 

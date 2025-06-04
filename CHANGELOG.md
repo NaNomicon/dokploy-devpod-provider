@@ -6,16 +6,16 @@
 
 #### DevPod Agent Integration
 
-- **Fixed SSH authentication flow** to work with DevPod's built-in SSH key management
-- **Hybrid authentication support**: Container now supports both password and SSH key authentication
-- **DevPod agent compatibility**: Proper setup for DevPod's automatic SSH key injection
+- **Fixed SSH authentication flow** to work with DevPod's standard SSH connection process
+- **Standard SSH authentication**: Container supports both password and SSH key authentication
+- **DevPod agent installation**: Proper setup for DevPod agent binary installation via SSH
 - **Removed authentication conflicts**: Eliminated "Permission denied" errors during connection
 
 #### SSH Configuration Improvements
 
 - **Enhanced SSH daemon setup**: Proper configuration for both `PubkeyAuthentication` and `PasswordAuthentication`
 - **SSH directory structure**: Correct `/home/devpod/.ssh` setup with proper permissions (700)
-- **Authorized keys support**: Container ready to receive DevPod's SSH key injection
+- **Standard SSH setup**: Container ready for standard SSH connections and agent installation
 - **User ownership**: Proper `chown devpod:devpod` for SSH directories
 
 ### 🔧 Port Availability Testing
@@ -39,8 +39,8 @@
 
 - **Clear responsibility separation**: Provider creates infrastructure, DevPod agent manages workspace
 - **Proper handoff mechanism**: Provider ensures SSH accessibility, then hands control to DevPod
-- **Agent injection support**: Container properly configured for DevPod agent deployment
-- **Credential forwarding**: Ready for DevPod's automatic credential injection
+- **Agent installation support**: Container properly configured for DevPod agent binary installation
+- **Standard SSH workflow**: Ready for DevPod's standard SSH connection and agent deployment
 
 #### Connection Flow Optimization
 
@@ -67,12 +67,12 @@
 #### Clear Communication
 
 - **Updated status messages**: Better explanation of what DevPod will handle
-- **Hybrid authentication notice**: Users understand both password and key auth are available
+- **Standard SSH authentication**: Users understand both password and key auth are available
 - **Next steps guidance**: Clear information about DevPod's role in the process
 
 #### Improved Documentation
 
-- **SSH authentication flow**: Documented how DevPod handles SSH key injection
+- **SSH authentication flow**: Documented how DevPod connects via SSH and installs its agent
 - **Provider responsibilities**: Clear explanation of what the provider vs. DevPod agent does
 - **Troubleshooting updates**: Better guidance for SSH-related issues
 
@@ -81,13 +81,13 @@
 #### DevPod Agent Architecture
 
 - **Machine provider pattern**: Proper implementation of DevPod's machine provider interface
-- **Agent injection ready**: Container configured for DevPod agent deployment
-- **Credential management**: Ready for DevPod's automatic credential forwarding
+- **Agent installation ready**: Container configured for DevPod agent binary installation via SSH
+- **Standard SSH workflow**: Ready for DevPod's standard connection and agent deployment process
 - **Workspace lifecycle**: Proper support for DevPod's workspace management
 
 #### SSH Service Architecture
 
-- **Hybrid authentication**: Supports both password (initial) and key-based (ongoing) authentication
+- **Standard SSH authentication**: Supports both password and key-based authentication
 - **Service readiness**: Reliable detection of SSH service availability
 - **Port propagation handling**: Proper waiting for Docker Swarm port mapping
 
@@ -99,7 +99,7 @@
 # Container now configured with:
 PubkeyAuthentication yes
 AuthorizedKeysFile .ssh/authorized_keys
-PasswordAuthentication yes  # For initial DevPod connection
+PasswordAuthentication yes  # For DevPod SSH connection
 PermitRootLogin no
 ```
 
@@ -123,6 +123,23 @@ PermitRootLogin no
 - **DevPod retry capability**: Provider doesn't fail if SSH isn't immediately ready
 - **Graceful degradation**: Users can manually connect if automated tests are inconclusive
 - **Clear error messages**: Better guidance when issues occur
+
+### ⚠️ Important Clarifications
+
+#### What DevPod Actually Does
+
+**✅ CORRECT BEHAVIOR**:
+
+- DevPod connects to containers via standard SSH (password or existing SSH keys)
+- DevPod downloads and installs its agent binary inside the container via SSH
+- DevPod agent handles workspace configuration based on `.devcontainer.json`
+- SSH key management follows standard SSH practices, not DevPod-specific injection
+
+**❌ PREVIOUS MISCONCEPTIONS**:
+
+- DevPod does not have "built-in SSH key management" that automatically injects keys
+- DevPod does not use environment variables like `DEVPOD_SSH_KEY` or `SSH_KEY`
+- DevPod does not automatically inject SSH keys during the container creation phase
 
 ---
 
