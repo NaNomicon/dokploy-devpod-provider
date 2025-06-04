@@ -10,6 +10,7 @@ import (
 
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/dokploy"
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/options"
+	"github.com/loft-sh/devpod/pkg/ssh"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -142,11 +143,97 @@ func runCreate() error {
 
 	logger.Info("✓ Environment variables configured")
 
+	// Get SSH public key from DevPod for injection into container
+	logger.Info("Getting SSH public key from DevPod...")
+	machineFolder := os.Getenv("MACHINE_FOLDER")
+	if machineFolder == "" {
+		return fmt.Errorf("MACHINE_FOLDER environment variable is missing")
+	}
+
+	logger.Debugf("Machine folder: %s", machineFolder)
+
+	publicKey, err := ssh.GetPublicKeyBase(machineFolder)
+	if err != nil {
+		return fmt.Errorf("failed to get SSH public key: %w", err)
+	}
+
+	logger.Debugf("Retrieved SSH public key (full): %s", publicKey)
+	logger.Debugf("Public key length: %d characters", len(publicKey))
+	logger.Info("✓ SSH public key retrieved from DevPod")
+
 	// Update application with SSH setup command
 	logger.Info("Configuring application for SSH access...")
 	
-	sshSetupCommand := `sh -c 'echo "=== DevPod SSH Setup Starting ===" && echo "Stage 1/4: Updating package lists (this may take 1-2 minutes)..." && apt-get update -qq && echo "✓ Package lists updated" && echo "Stage 2/4: Installing SSH server and sudo..." && apt-get install -y -qq openssh-server sudo && echo "✓ SSH server installed" && echo "Stage 3/4: Creating devpod user and configuring permissions..." && useradd -m -s /bin/bash devpod && echo "devpod ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && (getent group docker >/dev/null || groupadd docker) && usermod -aG docker devpod && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && touch /home/devpod/.ssh/authorized_keys && chmod 600 /home/devpod/.ssh/authorized_keys && chown devpod:devpod /home/devpod/.ssh/authorized_keys && echo "✓ User devpod configured" && echo "Stage 4/4: Configuring SSH daemon..." && mkdir -p /run/sshd && ssh-keygen -A && echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config && echo "PasswordAuthentication no" >> /etc/ssh/sshd_config && echo "PermitRootLogin no" >> /etc/ssh/sshd_config && echo "Port 22" >> /etc/ssh/sshd_config && echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config && echo "UsePAM no" >> /etc/ssh/sshd_config && echo "X11Forwarding yes" >> /etc/ssh/sshd_config && echo "PrintMotd no" >> /etc/ssh/sshd_config && echo "AcceptEnv LANG LC_*" >> /etc/ssh/sshd_config && echo "Subsystem sftp /usr/lib/openssh/sftp-server" >> /etc/ssh/sshd_config && echo "✓ SSH daemon configured for key-only authentication" && echo "=== Starting SSH daemon ===" && /usr/sbin/sshd -D -e &
-echo "SSH daemon started in background" && echo "🎉 SSH SETUP COMPLETE - DevPod status command will verify readiness" && sleep 5 && echo "Container ready for DevPod connection" && tail -f /dev/null'`
+	// Escape the public key for shell injection
+	escapedPublicKey := strings.ReplaceAll(publicKey, "'", "'\"'\"'")
+	
+	sshSetupCommand := fmt.Sprintf(`sh -c '
+echo "=== DevPod SSH Setup Starting ==="
+echo "Stage 1/4: Updating package lists..."
+apt-get update -qq
+echo "✓ Package lists updated"
+
+echo "Stage 2/4: Installing SSH server and sudo..."
+apt-get install -y -qq openssh-server sudo
+echo "✓ SSH server installed"
+
+echo "Stage 3/4: Creating devpod user and configuring permissions..."
+useradd -m -s /bin/bash devpod
+echo "devpod ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+(getent group docker >/dev/null || groupadd docker)
+usermod -aG docker devpod
+
+echo "Unlocking devpod user account..."
+echo "devpod:devpod" | chpasswd
+passwd -u devpod
+usermod -p '*' devpod
+echo "✓ User devpod account unlocked and configured"
+
+echo "Setting up SSH directory..."
+mkdir -p /home/devpod/.ssh
+chmod 700 /home/devpod/.ssh
+chown devpod:devpod /home/devpod/.ssh
+
+echo "Injecting SSH public key..."
+echo "%s" | base64 -d > /home/devpod/.ssh/authorized_keys
+chmod 600 /home/devpod/.ssh/authorized_keys
+chown devpod:devpod /home/devpod/.ssh/authorized_keys
+
+echo "Verifying SSH key injection..."
+echo "Key file exists: $(test -f /home/devpod/.ssh/authorized_keys && echo YES || echo NO)"
+echo "Key file size: $(wc -c < /home/devpod/.ssh/authorized_keys) bytes"
+echo "Key file permissions: $(ls -la /home/devpod/.ssh/authorized_keys)"
+echo "Key content preview: $(head -c 50 /home/devpod/.ssh/authorized_keys)..."
+echo "✓ User devpod configured with SSH key"
+
+echo "Stage 4/4: Configuring SSH daemon..."
+mkdir -p /run/sshd
+ssh-keygen -A
+
+echo "Configuring SSH daemon..."
+cat > /etc/ssh/sshd_config << EOF
+PubkeyAuthentication yes
+AuthorizedKeysFile /home/devpod/.ssh/authorized_keys
+PasswordAuthentication no
+PermitRootLogin no
+Port 22
+ChallengeResponseAuthentication no
+UsePAM no
+X11Forwarding yes
+PrintMotd no
+AcceptEnv LANG LC_*
+Subsystem sftp /usr/lib/openssh/sftp-server
+EOF
+
+echo "✓ SSH daemon configured for key-only authentication"
+echo "=== Starting SSH daemon ==="
+/usr/sbin/sshd -D -e &
+echo "SSH daemon started in background"
+echo "🎉 SSH SETUP COMPLETE - DevPod can now connect with SSH key"
+sleep 5
+echo "Container ready for DevPod connection"
+tail -f /dev/null
+'`, escapedPublicKey)
 
 	err = client.UpdateApplication(dokploy.UpdateApplicationRequest{
 		ApplicationID: app.ApplicationID,
@@ -358,13 +445,13 @@ echo "SSH daemon started in background" && echo "🎉 SSH SETUP COMPLETE - DevPo
 	logger.Infof("- SSH Host: %s", sshHost)
 	logger.Infof("- SSH Port: %d", sshHostPort)
 	logger.Info("- SSH User: devpod")
-	logger.Info("- SSH Auth: Key-only authentication (password disabled)")
+	logger.Info("- SSH Auth: SSH key authentication (DevPod managed)")
 	logger.Info("- Base Image: cruizba/ubuntu-dind (Ubuntu with Docker-in-Docker)")
 	logger.Infof("- Dokploy Dashboard: %s", opts.DokployServerURL)
 	logger.Info("")
 	logger.Info("Next Steps:")
 	logger.Info("- DevPod will check SSH readiness via status command")
-	logger.Info("- Once ready, DevPod will connect and inject its agent")
+	logger.Info("- Once ready, DevPod will connect via SSH key and install its agent")
 	logger.Info("- Docker is pre-installed and ready for development containers")
 
 	// Return connection info to DevPod (MUST BE LAST OUTPUT)
