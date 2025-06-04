@@ -45,19 +45,33 @@ type Project struct {
 
 // Application represents a Dokploy application
 type Application struct {
-	ApplicationID string `json:"applicationId"`
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	ProjectID     string `json:"projectId"`
-	Status        string `json:"applicationStatus"`
-	Ports         []Port `json:"ports"`
+	ApplicationID string   `json:"applicationId"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	ProjectID     string   `json:"projectId"`
+	Status        string   `json:"applicationStatus"`
+	Domains       []Domain `json:"domains"`
+	Ports         []Port   `json:"ports"`
 }
 
-// Port represents a port mapping
+// Domain represents a domain/port mapping in Dokploy
+type Domain struct {
+	DomainID    string `json:"domainId"`
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Path        string `json:"path"`
+	HTTPS       bool   `json:"https"`
+	DomainType  string `json:"domainType"`
+	ServiceName string `json:"serviceName"`
+}
+
+// Port represents a port mapping (for backward compatibility)
 type Port struct {
+	PortID        string `json:"portId"`
 	PublishedPort int    `json:"publishedPort"`
 	TargetPort    int    `json:"targetPort"`
 	Protocol      string `json:"protocol"`
+	ApplicationID string `json:"applicationId"`
 }
 
 // CreateProjectRequest represents a project creation request

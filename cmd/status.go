@@ -100,10 +100,18 @@ func runStatus() error {
 	// If Dokploy says it's running, check SSH readiness
 	logger.Debugf("Application is running in Dokploy, checking SSH readiness...")
 	
-	// Get application details to find SSH connection info
-	app, err := dokployClient.GetApplicationByName(machineID)
+	// First get the application to find its ID
+	appBasic, err := dokployClient.GetApplicationByName(machineID)
 	if err != nil {
 		logger.Debugf("Failed to get application details: %v", err)
+		fmt.Println(client.StatusBusy) // Return Busy if we can't check SSH
+		return nil
+	}
+
+	// Now get the full application details including ports
+	app, err := dokployClient.GetApplication(appBasic.ApplicationID)
+	if err != nil {
+		logger.Debugf("Failed to get full application details: %v", err)
 		fmt.Println(client.StatusBusy) // Return Busy if we can't check SSH
 		return nil
 	}

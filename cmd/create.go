@@ -246,10 +246,10 @@ echo "SSH daemon started in background" && echo "🎉 SSH SETUP COMPLETE - DevPo
 	if allProjects != nil {
 		for _, project := range allProjects {
 			for _, application := range project.Applications {
-				for _, port := range application.Ports {
-					if port.Protocol == "tcp" {
-						usedPorts[port.PublishedPort] = true
-						logger.Debugf("Port %d is already used by application %s", port.PublishedPort, application.Name)
+				for _, domain := range application.Domains {
+					if domain.Port > 0 {
+						usedPorts[domain.Port] = true
+						logger.Debugf("Port %d is already used by application %s", domain.Port, application.Name)
 					}
 				}
 			}

@@ -80,4 +80,4 @@ exec:
   # Execute commands via SSH
   command: |-
     export DOKPLOY_PROVIDER_DEV=true
-    ./dist/dokploy-provider command ${COMMAND}
+    ./dist/dokploy-provider command
