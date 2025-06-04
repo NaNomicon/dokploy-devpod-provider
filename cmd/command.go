@@ -172,9 +172,7 @@ func runCommand() error {
 	defer sshClient.Close()
 
 	// Execute the command via SSH
-	// Pass environment variables to the SSH session
-	env := map[string]string{
-		"COMMAND": command,
-	}
-	return ssh.Run(context.Background(), sshClient, command, os.Stdin, os.Stdout, os.Stderr, env)
+	// Pass empty environment map to satisfy function signature
+	// The SSH daemon is configured to only accept LANG LC_* environment variables
+	return ssh.Run(context.Background(), sshClient, command, os.Stdin, os.Stdout, os.Stderr, map[string]string{})
 } 
