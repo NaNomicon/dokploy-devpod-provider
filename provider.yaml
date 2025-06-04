@@ -234,8 +234,8 @@ exec:
     echo "Configuring application for SSH access..."
 
     # Use cruizba/ubuntu-dind which has Docker pre-installed and running
-    # Just need to set up the devpod user and configure SSH
-    UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'apt-get update && apt-get install -y openssh-server sudo && useradd -m -s /bin/bash devpod && echo \\\"devpod:devpod\\\" | chpasswd && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && usermod -aG docker devpod && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && mkdir -p /run/sshd && ssh-keygen -A && echo \\\"PubkeyAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"AuthorizedKeysFile .ssh/authorized_keys\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"PermitRootLogin no\\\" >> /etc/ssh/sshd_config && echo \\\"Port 22\\\" >> /etc/ssh/sshd_config && echo \\\"DevPod-ready Ubuntu container with Docker-in-Docker\\\" && exec /usr/sbin/sshd -D -e'\"}"
+    # Break the setup into stages with progress feedback to handle apt-get update delays
+    UPDATE_DATA="{\"applicationId\": \"${APP_ID}\", \"command\": \"sh -c 'echo \\\"=== DevPod SSH Setup Starting ===\\\" && echo \\\"Stage 1/4: Updating package lists (this may take 1-2 minutes)...\\\" && apt-get update -qq && echo \\\"✓ Package lists updated\\\" && echo \\\"Stage 2/4: Installing SSH server and sudo...\\\" && apt-get install -y -qq openssh-server sudo && echo \\\"✓ SSH server installed\\\" && echo \\\"Stage 3/4: Creating devpod user and configuring permissions...\\\" && useradd -m -s /bin/bash devpod && echo \\\"devpod:devpod\\\" | chpasswd && echo \\\"devpod ALL=(ALL) NOPASSWD:ALL\\\" >> /etc/sudoers && (getent group docker >/dev/null || groupadd docker) && usermod -aG docker devpod && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && echo \\\"✓ User devpod configured\\\" && echo \\\"Stage 4/4: Configuring SSH daemon...\\\" && mkdir -p /run/sshd && ssh-keygen -A && echo \\\"PubkeyAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"AuthorizedKeysFile .ssh/authorized_keys\\\" >> /etc/ssh/sshd_config && echo \\\"PasswordAuthentication yes\\\" >> /etc/ssh/sshd_config && echo \\\"PermitRootLogin no\\\" >> /etc/ssh/sshd_config && echo \\\"Port 22\\\" >> /etc/ssh/sshd_config && echo \\\"✓ SSH daemon configured\\\" && echo \\\"=== DevPod SSH Setup Complete - Starting SSH daemon ===\\\" && exec /usr/sbin/sshd -D -e'\"}"
 
     UPDATE_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.update" \
       -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
@@ -254,6 +254,15 @@ exec:
     echo "Deploying application with SSH configuration..."
     echo "NOTE: Using Ubuntu Docker-in-Docker container with pre-installed Docker"
     echo "      DevPod will connect via SSH and inject its agent automatically"
+    echo ""
+    echo "⏳ Container Setup Timeline:"
+    echo "   • Stage 1: Package update (1-2 minutes) - apt-get update"
+    echo "   • Stage 2: SSH installation (30-60 seconds) - install openssh-server"
+    echo "   • Stage 3: User setup (10-20 seconds) - create devpod user"
+    echo "   • Stage 4: SSH configuration (10-20 seconds) - configure SSH daemon"
+    echo "   • Total estimated time: 2-4 minutes"
+    echo ""
+
     DEPLOY_RESPONSE=$(curl -s -X POST "${DOKPLOY_SERVER_URL}/api/application.deploy" \
       -H "x-api-key: ${DOKPLOY_API_TOKEN}" \
       -H "Content-Type: application/json" \
@@ -267,21 +276,40 @@ exec:
 
     echo "✓ Deployment started with SSH configuration"
 
-    # Wait for deployment to complete
-    echo "Waiting for deployment to complete..."
+    # Wait for deployment to complete with better progress feedback
+    echo "Waiting for container setup to complete..."
+    echo "ℹ️  The container is now running the 4-stage SSH setup process."
+    echo "   If this takes longer than expected, the apt-get update stage may be slow."
+    echo ""
+
+    SETUP_START_TIME=$(date +%s)
     for i in $(seq 1 60); do
       STATUS=$(curl -s "${DOKPLOY_SERVER_URL}/api/application.one?applicationId=$APP_ID" \
         -H "x-api-key: ${DOKPLOY_API_TOKEN}" | jq -r '.applicationStatus // "unknown"')
       
+      CURRENT_TIME=$(date +%s)
+      ELAPSED_TIME=$((CURRENT_TIME - SETUP_START_TIME))
+      
       if [ "$STATUS" = "done" ]; then
-        echo "✓ Deployment completed successfully"
+        echo "✓ Container setup completed successfully (${ELAPSED_TIME}s elapsed)"
         break
       elif [ "$STATUS" = "error" ]; then
-        echo "⚠️  Redeployment failed, but continuing..."
+        echo "⚠️  Container setup failed, but continuing..."
         break
       fi
       
-      echo "   Redeployment status: $STATUS (attempt $i/60)"
+      # Provide stage-specific feedback based on elapsed time
+      if [ $ELAPSED_TIME -lt 60 ]; then
+        STAGE_INFO="(likely Stage 1: apt-get update)"
+      elif [ $ELAPSED_TIME -lt 120 ]; then
+        STAGE_INFO="(likely Stage 1-2: package update/SSH install)"
+      elif [ $ELAPSED_TIME -lt 180 ]; then
+        STAGE_INFO="(likely Stage 2-3: SSH install/user setup)"
+      else
+        STAGE_INFO="(likely Stage 3-4: user/SSH configuration)"
+      fi
+      
+      echo "   Setup status: $STATUS - ${ELAPSED_TIME}s elapsed $STAGE_INFO (attempt $i/60)"
       sleep 5
     done
 
