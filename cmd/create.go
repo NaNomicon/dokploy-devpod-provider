@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -144,7 +145,8 @@ func runCreate() error {
 	// Update application with SSH setup command
 	logger.Info("Configuring application for SSH access...")
 	
-	sshSetupCommand := `sh -c 'echo "=== DevPod SSH Setup Starting ===" && echo "Stage 1/4: Updating package lists (this may take 1-2 minutes)..." && apt-get update -qq && echo "✓ Package lists updated" && echo "Stage 2/4: Installing SSH server and sudo..." && apt-get install -y -qq openssh-server sudo && echo "✓ SSH server installed" && echo "Stage 3/4: Creating devpod user and configuring permissions..." && useradd -m -s /bin/bash devpod && echo "devpod:devpod" | chpasswd && echo "devpod ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && (getent group docker >/dev/null || groupadd docker) && usermod -aG docker devpod && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && echo "✓ User devpod configured" && echo "Stage 4/4: Configuring SSH daemon..." && mkdir -p /run/sshd && ssh-keygen -A && echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config && echo "PasswordAuthentication yes" >> /etc/ssh/sshd_config && echo "PermitRootLogin no" >> /etc/ssh/sshd_config && echo "Port 22" >> /etc/ssh/sshd_config && echo "✓ SSH daemon configured" && echo "=== DevPod SSH Setup Complete - Starting SSH daemon ===" && exec /usr/sbin/sshd -D -e'`
+	sshSetupCommand := `sh -c 'echo "=== DevPod SSH Setup Starting ===" && echo "Stage 1/4: Updating package lists (this may take 1-2 minutes)..." && apt-get update -qq && echo "✓ Package lists updated" && echo "Stage 2/4: Installing SSH server and sudo..." && apt-get install -y -qq openssh-server sudo && echo "✓ SSH server installed" && echo "Stage 3/4: Creating devpod user and configuring permissions..." && useradd -m -s /bin/bash devpod && echo "devpod ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && (getent group docker >/dev/null || groupadd docker) && usermod -aG docker devpod && mkdir -p /home/devpod/.ssh && chmod 700 /home/devpod/.ssh && chown devpod:devpod /home/devpod/.ssh && touch /home/devpod/.ssh/authorized_keys && chmod 600 /home/devpod/.ssh/authorized_keys && chown devpod:devpod /home/devpod/.ssh/authorized_keys && echo "✓ User devpod configured" && echo "Stage 4/4: Configuring SSH daemon..." && mkdir -p /run/sshd && ssh-keygen -A && echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config && echo "AuthorizedKeysFile .ssh/authorized_keys" >> /etc/ssh/sshd_config && echo "PasswordAuthentication no" >> /etc/ssh/sshd_config && echo "PermitRootLogin no" >> /etc/ssh/sshd_config && echo "Port 22" >> /etc/ssh/sshd_config && echo "ChallengeResponseAuthentication no" >> /etc/ssh/sshd_config && echo "UsePAM no" >> /etc/ssh/sshd_config && echo "X11Forwarding yes" >> /etc/ssh/sshd_config && echo "PrintMotd no" >> /etc/ssh/sshd_config && echo "AcceptEnv LANG LC_*" >> /etc/ssh/sshd_config && echo "Subsystem sftp /usr/lib/openssh/sftp-server" >> /etc/ssh/sshd_config && echo "✓ SSH daemon configured for key-only authentication" && echo "=== Starting SSH daemon ===" && /usr/sbin/sshd -D -e &
+echo "SSH daemon started in background" && echo "🎉 SSH SETUP COMPLETE - DevPod status command will verify readiness" && sleep 5 && echo "Container ready for DevPod connection" && tail -f /dev/null'`
 
 	err = client.UpdateApplication(dokploy.UpdateApplicationRequest{
 		ApplicationID: app.ApplicationID,
@@ -231,14 +233,57 @@ func runCreate() error {
 	// Try to find an available port for SSH mapping
 	var sshHostPort int
 	portCreated := false
-	logger.Info("Searching for available SSH port (trying ports 2222-2230)...")
+	logger.Info("Searching for available SSH port (trying ports 2222-2250)...")
 
-	for port := 2222; port <= 2230; port++ {
+	// First, get all existing applications to check for port conflicts
+	allProjects, err := client.GetAllProjects()
+	if err != nil {
+		logger.Warnf("Failed to get projects for port conflict check: %v", err)
+	}
+
+	// Build a map of used ports from API data
+	usedPorts := make(map[int]bool)
+	if allProjects != nil {
+		for _, project := range allProjects {
+			for _, application := range project.Applications {
+				for _, port := range application.Ports {
+					if port.Protocol == "tcp" {
+						usedPorts[port.PublishedPort] = true
+						logger.Debugf("Port %d is already used by application %s", port.PublishedPort, application.Name)
+					}
+				}
+			}
+		}
+	}
+
+	// Test actual network connectivity to find truly available ports
+	logger.Info("Testing network connectivity to find available ports...")
+	for port := 2222; port <= 2250; port++ {
 		if portCreated {
 			break
 		}
 
-		logger.Infof("Trying port %d...", port)
+		// Check if port is already used by another application according to API
+		if usedPorts[port] {
+			logger.Infof("Port %d is already in use by another application (API check), skipping...", port)
+			continue
+		}
+
+		// Test actual network connectivity to see if port is really available
+		testAddress := fmt.Sprintf("%s:%d", sshHost, port)
+		logger.Debugf("Testing connectivity to %s...", testAddress)
+		
+		conn, err := net.DialTimeout("tcp", testAddress, 3*time.Second)
+		if err == nil {
+			// Port is already in use by something
+			conn.Close()
+			logger.Infof("Port %d is already in use (network test), skipping...", port)
+			usedPorts[port] = true
+			continue
+		}
+		
+		// Port appears to be available, try to create the mapping
+		logger.Infof("Port %d appears available, attempting to create mapping...", port)
 
 		err = client.CreatePort(dokploy.CreatePortRequest{
 			PublishedPort: port,
@@ -248,19 +293,22 @@ func runCreate() error {
 		})
 
 		if err != nil {
-			logger.Infof("   Port %d failed: %v", port, err)
+			logger.Infof("   Port %d API creation failed: %v", port, err)
+			usedPorts[port] = true
 			continue
 		}
 
 		logger.Infof("✅ Port %d API mapping created successfully!", port)
 		logger.Infof("   Mapping: %d (host) → 22 (container)", port)
+		
+		// Store the port for later verification after deployment
 		sshHostPort = port
 		portCreated = true
 		break
 	}
 
 	if !portCreated {
-		return fmt.Errorf("could not configure SSH port mapping - all ports in range 2222-2230 are in use")
+		return fmt.Errorf("could not configure SSH port mapping - all ports in range 2222-2250 are in use")
 	}
 
 	logger.Info("")
@@ -297,28 +345,30 @@ func runCreate() error {
 		time.Sleep(5 * time.Second)
 	}
 
+	// Additional wait for container to fully initialize SSH service
+	logger.Info("Waiting for container to fully initialize SSH service...")
+	time.Sleep(15 * time.Second)
+
 	logger.Info("")
 	logger.Info("✅ Dokploy workspace created successfully!")
-	logger.Info("🎉 SSH port is ready and accessible!")
-	logger.Info("DevPod can now connect and set up authentication automatically")
+	logger.Info("🎉 Machine creation completed!")
 	logger.Info("")
 	logger.Info("Workspace Details:")
 	logger.Infof("- Application ID: %s", app.ApplicationID)
 	logger.Infof("- SSH Host: %s", sshHost)
 	logger.Infof("- SSH Port: %d", sshHostPort)
 	logger.Info("- SSH User: devpod")
-	logger.Info("- SSH Auth: Hybrid (password + key) - DevPod will inject keys automatically")
+	logger.Info("- SSH Auth: Key-only authentication (password disabled)")
 	logger.Info("- Base Image: cruizba/ubuntu-dind (Ubuntu with Docker-in-Docker)")
 	logger.Infof("- Dokploy Dashboard: %s", opts.DokployServerURL)
 	logger.Info("")
 	logger.Info("Next Steps:")
-	logger.Info("- DevPod will connect via SSH and inject its agent")
-	logger.Info("- The agent will handle authentication, credentials, and workspace setup")
+	logger.Info("- DevPod will check SSH readiness via status command")
+	logger.Info("- Once ready, DevPod will connect and inject its agent")
 	logger.Info("- Docker is pre-installed and ready for development containers")
-	logger.Info("- Container will auto-shutdown after inactivity (10m configured)")
 
 	// Return connection info to DevPod (MUST BE LAST OUTPUT)
-	fmt.Printf("DEVPOD_MACHINE_ID=%s\n", app.ApplicationID)
+	fmt.Printf("DEVPOD_MACHINE_ID=%s\n", machineID)
 	fmt.Printf("DEVPOD_MACHINE_HOST=%s\n", sshHost)
 	fmt.Printf("DEVPOD_MACHINE_PORT=%d\n", sshHostPort)
 	fmt.Printf("DEVPOD_MACHINE_USER=devpod\n")

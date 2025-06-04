@@ -168,13 +168,11 @@ When developing and testing the provider, understand the two-layer architecture:
 # Test with default machine image
 make test-docker
 
-# Test with Alpine (lightweight)
-devpod provider set-options dokploy-dev --option MACHINE_IMAGE=alpine:latest
-make test-docker
+# Test with different configurations
+devpod provider set-options dokploy-dev --option MACHINE_TYPE=medium
 
-# Test with different development scenarios
-devpod up https://github.com/microsoft/vscode-remote-try-node.git --provider dokploy-dev
-devpod up https://github.com/microsoft/vscode-remote-try-python.git --provider dokploy-dev
+# Test with Ubuntu DinD (default - recommended for DevPod compatibility)
+devpod provider set-options dokploy-dev --option DOKPLOY_PROJECT_NAME=test-project
 ```
 
 ### Makefile-Based Development

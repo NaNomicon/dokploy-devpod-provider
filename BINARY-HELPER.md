@@ -144,6 +144,13 @@ echo "Stage 4/4: Configuring SSH daemon..." && mkdir -p /run/sshd && ssh-keygen 
 exec /usr/sbin/sshd -D -e'
 ```
 
+**Container Image Choice**: Uses `cruizba/ubuntu-dind:latest` for optimal DevPod compatibility:
+
+- **Ubuntu Base**: Industry standard for development containers
+- **Docker-in-Docker**: Pre-installed Docker daemon for `.devcontainer.json` support
+- **DevPod Compatible**: Proven compatibility with DevPod agent injection
+- **Development Ready**: Extensive package ecosystem and development tools
+
 **Output Format** (DevPod-compatible):
 
 ```bash

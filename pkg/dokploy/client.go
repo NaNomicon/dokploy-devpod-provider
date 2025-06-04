@@ -253,8 +253,30 @@ func (c *Client) GetApplication(applicationID string) (*Application, error) {
 	}
 	defer resp.Body.Close()
 
+	// Read the response body for debugging
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	
+	c.logger.Debugf("Dokploy API response for application %s: %s", applicationID, string(body))
+
+	// Check for error responses
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		}
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			if errorResp.Code == "NOT_FOUND" {
+				return nil, fmt.Errorf("application not found: %s", errorResp.Message)
+			}
+		}
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
 	var app Application
-	if err := json.NewDecoder(resp.Body).Decode(&app); err != nil {
+	if err := json.Unmarshal(body, &app); err != nil {
 		return nil, fmt.Errorf("failed to decode application response: %w", err)
 	}
 
@@ -310,33 +332,91 @@ func (c *Client) StopApplication(applicationID string) error {
 }
 
 // GetApplicationStatus returns the DevPod-compatible status of an application
-func (c *Client) GetApplicationStatus(applicationID string) (client.Status, error) {
-	app, err := c.GetApplication(applicationID)
+func (c *Client) GetApplicationStatus(applicationName string) (client.Status, error) {
+	app, err := c.GetApplicationByName(applicationName)
 	if err != nil {
 		return client.StatusNotFound, err
 	}
 
+	c.logger.Debugf("Dokploy application status for %s: '%s'", applicationName, app.Status)
+
 	switch app.Status {
 	case "done", "running":
 		return client.StatusRunning, nil
-	case "idle":
+	case "idle", "stopped":
 		return client.StatusStopped, nil
-	case "error":
+	case "error", "failed":
 		return client.StatusNotFound, nil
+	case "building", "deploying", "restarting":
+		return client.StatusBusy, nil
 	default:
+		c.logger.Warnf("Unknown Dokploy status '%s' for application %s, treating as busy", app.Status, applicationName)
 		return client.StatusBusy, nil
 	}
 }
 
-// makeRequest makes an HTTP request to the Dokploy API
+// GetApplicationByName retrieves an application by name
+func (c *Client) GetApplicationByName(applicationName string) (*Application, error) {
+	// Get all projects to find the application
+	projects, err := c.GetAllProjects()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get projects: %w", err)
+	}
+
+	// Find the application with matching name
+	for _, project := range projects {
+		for _, application := range project.Applications {
+			if application.Name == applicationName {
+				return &application, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("application with name '%s' not found", applicationName)
+}
+
+// DeleteApplicationByName deletes an application by name
+func (c *Client) DeleteApplicationByName(applicationName string) error {
+	app, err := c.GetApplicationByName(applicationName)
+	if err != nil {
+		return fmt.Errorf("failed to find application: %w", err)
+	}
+	
+	return c.DeleteApplication(app.ApplicationID)
+}
+
+// StartApplicationByName starts an application by name
+func (c *Client) StartApplicationByName(applicationName string) error {
+	app, err := c.GetApplicationByName(applicationName)
+	if err != nil {
+		return fmt.Errorf("failed to find application: %w", err)
+	}
+	
+	return c.StartApplication(app.ApplicationID)
+}
+
+// StopApplicationByName stops an application by name
+func (c *Client) StopApplicationByName(applicationName string) error {
+	app, err := c.GetApplicationByName(applicationName)
+	if err != nil {
+		return fmt.Errorf("failed to find application: %w", err)
+	}
+	
+	return c.StopApplication(app.ApplicationID)
+}
+
+// makeRequest makes an HTTP request to the Dokploy API with comprehensive debug logging
 func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.Response, error) {
 	var reqBody io.Reader
+	var requestBodyStr string
+	
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
 		}
 		reqBody = bytes.NewBuffer(jsonBody)
+		requestBodyStr = string(jsonBody)
 	}
 
 	url := c.baseURL + endpoint
@@ -350,12 +430,41 @@ func (c *Client) makeRequest(method, endpoint string, body interface{}) (*http.R
 		req.Header.Set("Content-Type", "application/json")
 	}
 
+	// Debug log the request
+	c.logger.Debugf("=== API REQUEST ===")
 	c.logger.Debugf("Making %s request to %s", method, url)
+	if requestBodyStr != "" {
+		c.logger.Debugf("Request body: %s", requestBodyStr)
+	} else {
+		c.logger.Debugf("Request body: (empty)")
+	}
+	c.logger.Debugf("Headers: x-api-key=[REDACTED], Content-Type=%s", req.Header.Get("Content-Type"))
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		c.logger.Debugf("=== API REQUEST FAILED ===")
+		c.logger.Debugf("Error: %v", err)
 		return nil, fmt.Errorf("failed to make request: %w", err)
 	}
+
+	// Read response body for logging (we'll need to recreate it for the caller)
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.logger.Debugf("=== API RESPONSE (READ ERROR) ===")
+		c.logger.Debugf("Status: %d %s", resp.StatusCode, resp.Status)
+		c.logger.Debugf("Error reading response body: %v", err)
+		resp.Body.Close()
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	resp.Body.Close()
+
+	// Debug log the response
+	c.logger.Debugf("=== API RESPONSE ===")
+	c.logger.Debugf("Status: %d %s", resp.StatusCode, resp.Status)
+	c.logger.Debugf("Response body: %s", string(responseBody))
+
+	// Recreate the response body for the caller
+	resp.Body = io.NopCloser(bytes.NewReader(responseBody))
 
 	return resp, nil
 } 

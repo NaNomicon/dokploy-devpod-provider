@@ -83,4 +83,4 @@ exec:
 
   # Execute commands via SSH
   command: |-
-    ${DOKPLOY_PROVIDER_BINARY} command
+    ${DOKPLOY_PROVIDER_BINARY} command ${COMMAND}

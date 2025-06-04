@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/dokploy"
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/options"
@@ -32,9 +31,9 @@ func runStop() error {
 		logger.SetLevel(logrus.DebugLevel)
 	}
 
-	machineID := os.Getenv("DEVPOD_MACHINE_ID")
-	if machineID == "" {
-		return fmt.Errorf("DEVPOD_MACHINE_ID is required")
+	machineID, err := getMachineIDFromContext()
+	if err != nil {
+		return fmt.Errorf("failed to get machine ID: %w", err)
 	}
 
 	logger.Infof("Stopping Dokploy workspace: %s", machineID)
@@ -49,7 +48,7 @@ func runStop() error {
 	client := dokploy.NewClient(opts, logger)
 
 	// Stop the application
-	err = client.StopApplication(machineID)
+	err = client.StopApplicationByName(machineID)
 	if err != nil {
 		return fmt.Errorf("failed to stop application: %w", err)
 	}

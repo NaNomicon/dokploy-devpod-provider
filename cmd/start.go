@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/dokploy"
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/options"
@@ -32,9 +31,9 @@ func runStart() error {
 		logger.SetLevel(logrus.DebugLevel)
 	}
 
-	machineID := os.Getenv("DEVPOD_MACHINE_ID")
-	if machineID == "" {
-		return fmt.Errorf("DEVPOD_MACHINE_ID is required")
+	machineID, err := getMachineIDFromContext()
+	if err != nil {
+		return fmt.Errorf("failed to get machine ID: %w", err)
 	}
 
 	logger.Infof("Starting Dokploy workspace: %s", machineID)
@@ -49,7 +48,7 @@ func runStart() error {
 	client := dokploy.NewClient(opts, logger)
 
 	// Start the application
-	err = client.StartApplication(machineID)
+	err = client.StartApplicationByName(machineID)
 	if err != nil {
 		return fmt.Errorf("failed to start application: %w", err)
 	}

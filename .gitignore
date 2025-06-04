@@ -16,6 +16,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+.cursorrules
+.cursor/
 
 # Logs
 *.log
@@ -50,3 +52,6 @@ dev/
 dist/
 build/
 dokploy-provider
+
+# Example providers (for reference only)
+example/

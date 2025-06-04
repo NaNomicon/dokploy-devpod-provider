@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -63,4 +64,30 @@ func initConfig() {
 			fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 		}
 	}
+}
+
+// getMachineIDFromContext gets the machine ID from the environment
+// For machine providers, DevPod sets MACHINE_ID environment variable
+func getMachineIDFromContext() (string, error) {
+	// DevPod sets MACHINE_ID for machine providers
+	machineID := os.Getenv("MACHINE_ID")
+	if machineID != "" {
+		return machineID, nil
+	}
+	
+	// Fallback: try DEVPOD_MACHINE_ID (for some operations)
+	machineID = os.Getenv("DEVPOD_MACHINE_ID")
+	if machineID != "" {
+		return machineID, nil
+	}
+	
+	// Collect all relevant env vars for debugging
+	var envs []string
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "MACHINE") || strings.HasPrefix(env, "DEVPOD") {
+			envs = append(envs, env)
+		}
+	}
+	
+	return "", fmt.Errorf("could not determine machine ID. Available env vars: %v", envs)
 } 

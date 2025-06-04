@@ -6,7 +6,7 @@ A high-performance DevPod provider for [Dokploy](https://dokploy.com/) that enab
 
 - **⚡ Binary Helper**: Fast Go CLI binary instead of slow shell scripts
 - **🔧 Automatic SSH Setup**: Intelligent port mapping and SSH configuration
-- **🐳 Docker-in-Docker**: Native Docker support with `cruizba/ubuntu-dind:latest`
+- **🐳 Ubuntu Docker-in-Docker**: Uses `cruizba/ubuntu-dind:latest` - the industry standard for DevPod compatibility
 - **🛠️ Zero Configuration**: Automatic project and application management
 - **📊 Comprehensive Debugging**: Detailed logging and error analysis
 - **🔄 DevPod Compatible**: Full support for `.devcontainer.json` workflows
@@ -105,6 +105,33 @@ The provider creates workspaces using a 4-stage setup process:
 4. **Stage 4**: SSH configuration (10-20 seconds) - configure SSH daemon
 
 Total setup time: **2-4 minutes**
+
+### Why Ubuntu Docker-in-Docker?
+
+This provider uses **`cruizba/ubuntu-dind:latest`** as the base container image, which is the industry standard for DevPod and development container workflows:
+
+#### ✅ **DevPod Compatibility**
+
+- **Native Docker Support**: Pre-installed Docker daemon for `.devcontainer.json` workflows
+- **Ubuntu Base**: Compatible with most development tools and packages
+- **SSH Ready**: Proper SSH daemon support for DevPod agent injection
+- **Industry Standard**: Used by major DevPod providers and development platforms
+
+#### ✅ **Technical Advantages**
+
+- **Docker-in-Docker**: Full Docker capabilities inside the container
+- **Package Ecosystem**: Access to Ubuntu's extensive package repository
+- **Development Tools**: Pre-configured for development workflows
+- **Container Orchestration**: Proper support for multi-container development environments
+
+#### ✅ **DevPod Integration**
+
+- **Agent Injection**: DevPod can properly inject its agent via SSH
+- **Workspace Management**: Full support for DevPod workspace lifecycle
+- **Container Features**: Native support for DevContainer features and extensions
+- **Cross-Platform**: Works consistently across all DevPod-supported platforms
+
+This choice ensures maximum compatibility with DevPod's architecture and provides the most reliable development environment for your workspaces.
 
 ## 🔐 SSH Authentication & DevPod Integration
 

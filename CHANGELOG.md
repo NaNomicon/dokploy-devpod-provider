@@ -33,7 +33,10 @@
 
 #### Docker Container Setup
 
-- **Switched to Ubuntu**: From Alpine to `cruizba/ubuntu-dind:latest` for better Docker-in-Docker support
+- **Ubuntu Docker-in-Docker**: Switched to `cruizba/ubuntu-dind:latest` for optimal DevPod compatibility
+  - **Industry Standard**: Proven compatibility with DevPod and development containers
+  - **Docker-in-Docker**: Pre-installed Docker daemon for `.devcontainer.json` workflows
+  - **Development Ready**: Ubuntu base with extensive package ecosystem
 - **4-stage SSH setup**: Optimized container initialization process
   - Stage 1: Package update (1-2 minutes)
   - Stage 2: SSH server installation (30-60 seconds)

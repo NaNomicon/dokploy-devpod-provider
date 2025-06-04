@@ -301,7 +301,7 @@ uninstall: ## Remove the provider from DevPod
 cleanup-workspaces: ## Delete all workspaces using this provider
 	@echo "$(YELLOW)Cleaning up workspaces for provider $(PROVIDER_NAME)...$(NC)"
 	@echo "$(BLUE)Checking for workspaces using this provider...$(NC)"
-	@workspaces=$$($(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[] | select(.provider == "$(PROVIDER_NAME)" or .provider == "$(PROVIDER_NAME)-dev") | .id' 2>/dev/null || true); \
+	@workspaces=$$($(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[] | select(.provider.name == "$(PROVIDER_NAME)" or .provider.name == "$(PROVIDER_NAME)-dev") | .id' 2>/dev/null || true); \
 	if [ -n "$$workspaces" ]; then \
 		echo "$(BLUE)Found workspaces to clean up:$(NC)"; \
 		for ws in $$workspaces; do \
@@ -310,92 +310,56 @@ cleanup-workspaces: ## Delete all workspaces using this provider
 		echo "$(YELLOW)Deleting workspaces with --force flag...$(NC)"; \
 		for ws in $$workspaces; do \
 			echo "$(BLUE)Deleting workspace: $$ws$(NC)"; \
-			echo "$(YELLOW)Attempting graceful deletion...$(NC)"; \
-			if $(DEVPOD_CMD) delete $$ws --force 2>/dev/null; then \
-				echo "$(GREEN)✓ Successfully deleted: $$ws$(NC)"; \
-			else \
-				echo "$(YELLOW)Graceful deletion failed, trying aggressive methods...$(NC)"; \
-				$(DEVPOD_CMD) stop $$ws --force 2>/dev/null || true; \
-				sleep 2; \
-				$(DEVPOD_CMD) delete $$ws --force 2>/dev/null || true; \
-				sleep 2; \
-				$(DEVPOD_CMD) delete $$ws --force --ignore-not-found 2>/dev/null || true; \
-				echo "$(YELLOW)⚠ Attempted aggressive deletion for: $$ws$(NC)"; \
-			fi; \
+			$(DEVPOD_CMD) delete $$ws --force --ignore-not-found 2>/dev/null || true; \
 		done; \
-		echo "$(YELLOW)Waiting for cleanup to complete...$(NC)"; \
-		sleep 3; \
-		remaining=$$($(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[] | select(.provider == "$(PROVIDER_NAME)" or .provider == "$(PROVIDER_NAME)-dev") | .id' 2>/dev/null || true); \
-		if [ -n "$$remaining" ]; then \
-			echo "$(RED)⚠ Some workspaces may still exist:$(NC)"; \
-			for ws in $$remaining; do \
-				echo "  - $$ws (may need manual cleanup)"; \
-			done; \
-		else \
-			echo "$(GREEN)✓ All workspaces cleaned up$(NC)"; \
-		fi; \
+		echo "$(GREEN)✓ Workspaces cleaned up$(NC)"; \
 	else \
 		echo "$(GREEN)No workspaces found for this provider$(NC)"; \
 	fi
 
-.PHONY: force-uninstall
-force-uninstall: cleanup-workspaces ## Force remove provider and all its workspaces
+.PHONY: force-reinstall
+force-reinstall: ## Force reinstall provider (handles active workspaces and stubborn providers)
+	@echo "$(YELLOW)Force reinstalling provider $(PROVIDER_NAME)...$(NC)"
+	@$(MAKE) cleanup-workspaces
 	@echo "$(YELLOW)Force removing provider...$(NC)"
 	@echo "$(BLUE)Current providers before deletion:$(NC)"
 	@$(DEVPOD_CMD) provider list || true
+	@echo ""
 	@echo "$(YELLOW)Attempting to delete providers (with retries)...$(NC)"
 	@for attempt in 1 2 3; do \
 		echo "$(BLUE)Deletion attempt $$attempt/3...$(NC)"; \
-		success=true; \
-		if $(DEVPOD_CMD) provider list 2>/dev/null | grep -q "$(PROVIDER_NAME)-dev"; then \
-			echo "$(BLUE)Deleting $(PROVIDER_NAME)-dev...$(NC)"; \
-			if ! $(DEVPOD_CMD) provider delete $(PROVIDER_NAME)-dev 2>/dev/null; then \
-				echo "$(YELLOW)Failed to delete $(PROVIDER_NAME)-dev on attempt $$attempt$(NC)"; \
-				success=false; \
+		for provider in $(PROVIDER_NAME) $(PROVIDER_NAME)-dev; do \
+			if $(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -e "has(\"$$provider\")" >/dev/null 2>&1; then \
+				echo "$(BLUE)Deleting $$provider...$(NC)"; \
+				if $(DEVPOD_CMD) provider delete $$provider 2>/dev/null; then \
+					echo "$(GREEN)✓ Successfully deleted $$provider$(NC)"; \
+				else \
+					echo "$(RED)Failed to delete $$provider on attempt $$attempt$(NC)"; \
+				fi; \
 			fi; \
-		fi; \
-		if $(DEVPOD_CMD) provider list 2>/dev/null | grep -q "$(PROVIDER_NAME)$$"; then \
-			echo "$(BLUE)Deleting $(PROVIDER_NAME)...$(NC)"; \
-			if ! $(DEVPOD_CMD) provider delete $(PROVIDER_NAME) 2>/dev/null; then \
-				echo "$(YELLOW)Failed to delete $(PROVIDER_NAME) on attempt $$attempt$(NC)"; \
-				success=false; \
-			fi; \
-		fi; \
-		if $$success; then \
-			echo "$(GREEN)✓ Provider deletion successful on attempt $$attempt$(NC)"; \
+		done; \
+		if ! $(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -e "has(\"$(PROVIDER_NAME)\") or has(\"$(PROVIDER_NAME)-dev\")" >/dev/null 2>&1; then \
+			echo "$(GREEN)✓ All providers deleted successfully$(NC)"; \
 			break; \
-		elif [ $$attempt -lt 3 ]; then \
+		fi; \
+		if [ $$attempt -lt 3 ]; then \
 			echo "$(YELLOW)Retrying in 3 seconds...$(NC)"; \
 			sleep 3; \
 			echo "$(BLUE)Re-checking for remaining workspaces...$(NC)"; \
 			$(MAKE) cleanup-workspaces; \
-		else \
-			echo "$(RED)⚠ Provider deletion failed after 3 attempts$(NC)"; \
 		fi; \
 	done
+	@if $(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -e "has(\"$(PROVIDER_NAME)\") or has(\"$(PROVIDER_NAME)-dev\")" >/dev/null 2>&1; then \
+		echo "$(RED)⚠ Provider deletion failed after 3 attempts$(NC)"; \
+		echo "$(YELLOW)Attempting nuclear cleanup...$(NC)"; \
+		$(MAKE) nuclear-cleanup-providers; \
+	fi
 	@echo "$(BLUE)Current providers after deletion:$(NC)"
 	@$(DEVPOD_CMD) provider list || true
+	@echo ""
 	@echo "$(GREEN)Provider force removal completed$(NC)"
-
-.PHONY: reinstall
-reinstall: ## Reinstall the provider locally
-	@echo "$(BLUE)Reinstalling provider...$(NC)"
-	@echo "$(YELLOW)Checking for active workspaces...$(NC)"
-	@if $(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[].provider' 2>/dev/null | grep -q "$(PROVIDER_NAME)"; then \
-		echo "$(RED)⚠ Active workspaces found. Use one of these options:$(NC)"; \
-		echo "  make force-reinstall     # Delete workspaces and reinstall"; \
-		echo "  make cleanup-workspaces  # Just delete workspaces"; \
-		echo "  devpod delete <name>     # Delete specific workspace"; \
-		exit 1; \
-	fi
-	@echo "$(YELLOW)Removing existing provider...$(NC)"
-	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME)-dev --ignore-not-found 2>/dev/null || true
-	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME) --ignore-not-found 2>/dev/null || true
-	@echo "$(YELLOW)Installing provider...$(NC)"
-	@$(MAKE) install-local
-
-.PHONY: force-reinstall
-force-reinstall: force-uninstall install-dev ## Force reinstall provider (deletes all workspaces)
+	@$(MAKE) build
+	@$(MAKE) install-dev
 
 ##@ Configuration
 
@@ -757,4 +721,75 @@ help: ## Display this help
 	@echo ""
 	@echo "$(BLUE)GitHub Installation:$(NC)"
 	@echo "  devpod provider add $(GITHUB_REPO)"
-	@echo "" 
+	@echo ""
+
+.PHONY: nuclear-cleanup-providers
+nuclear-cleanup-providers: ## Nuclear option: force delete providers using all methods
+	@echo "$(RED)⚠ Nuclear cleanup: Attempting to force delete providers$(NC)"
+	@echo "$(YELLOW)This will try multiple deletion methods...$(NC)"
+	@for provider in $(PROVIDER_NAME) $(PROVIDER_NAME)-dev; do \
+		if $(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -e "has(\"$$provider\")" >/dev/null 2>&1; then \
+			echo "$(BLUE)Nuclear deletion of $$provider...$(NC)"; \
+			$(DEVPOD_CMD) provider delete $$provider --ignore-not-found 2>/dev/null || true; \
+			$(DEVPOD_CMD) provider delete $$provider --ignore-not-found 2>/dev/null || true; \
+			$(DEVPOD_CMD) provider delete $$provider 2>/dev/null || true; \
+		fi; \
+	done
+	@echo "$(GREEN)Nuclear cleanup completed$(NC)"
+
+.PHONY: force-uninstall
+force-uninstall: cleanup-workspaces ## Force remove provider and all its workspaces
+	@echo "$(YELLOW)Force removing provider...$(NC)"
+	@echo "$(BLUE)Current providers before deletion:$(NC)"
+	@$(DEVPOD_CMD) provider list || true
+	@echo ""
+	@echo "$(YELLOW)Attempting to delete providers (with retries)...$(NC)"
+	@for attempt in 1 2 3; do \
+		echo "$(BLUE)Deletion attempt $$attempt/3...$(NC)"; \
+		for provider in $(PROVIDER_NAME) $(PROVIDER_NAME)-dev; do \
+			if $(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -e "has(\"$$provider\")" >/dev/null 2>&1; then \
+				echo "$(BLUE)Deleting $$provider...$(NC)"; \
+				if $(DEVPOD_CMD) provider delete $$provider 2>/dev/null; then \
+					echo "$(GREEN)✓ Successfully deleted $$provider$(NC)"; \
+				else \
+					echo "$(RED)Failed to delete $$provider on attempt $$attempt$(NC)"; \
+				fi; \
+			fi; \
+		done; \
+		if ! $(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -e "has(\"$(PROVIDER_NAME)\") or has(\"$(PROVIDER_NAME)-dev\")" >/dev/null 2>&1; then \
+			echo "$(GREEN)✓ All providers deleted successfully$(NC)"; \
+			break; \
+		fi; \
+		if [ $$attempt -lt 3 ]; then \
+			echo "$(YELLOW)Retrying in 3 seconds...$(NC)"; \
+			sleep 3; \
+			echo "$(BLUE)Re-checking for remaining workspaces...$(NC)"; \
+			$(MAKE) cleanup-workspaces; \
+		fi; \
+	done
+	@if $(DEVPOD_CMD) provider list --output json 2>/dev/null | jq -e "has(\"$(PROVIDER_NAME)\") or has(\"$(PROVIDER_NAME)-dev\")" >/dev/null 2>&1; then \
+		echo "$(RED)⚠ Provider deletion failed after 3 attempts$(NC)"; \
+		echo "$(YELLOW)Attempting nuclear cleanup...$(NC)"; \
+		$(MAKE) nuclear-cleanup-providers; \
+	fi
+	@echo "$(BLUE)Current providers after deletion:$(NC)"
+	@$(DEVPOD_CMD) provider list || true
+	@echo ""
+	@echo "$(GREEN)Provider force removal completed$(NC)"
+
+.PHONY: reinstall
+reinstall: ## Reinstall the provider locally
+	@echo "$(BLUE)Reinstalling provider...$(NC)"
+	@echo "$(YELLOW)Checking for active workspaces...$(NC)"
+	@if $(DEVPOD_CMD) list --output json 2>/dev/null | jq -r '.[] | select(.provider.name == "$(PROVIDER_NAME)" or .provider.name == "$(PROVIDER_NAME)-dev") | .id' 2>/dev/null | grep -q .; then \
+		echo "$(RED)⚠ Active workspaces found. Use one of these options:$(NC)"; \
+		echo "  make force-reinstall     # Delete workspaces and reinstall"; \
+		echo "  make cleanup-workspaces  # Just delete workspaces"; \
+		echo "  devpod delete <name>     # Delete specific workspace"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)Removing existing provider...$(NC)"
+	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME)-dev --ignore-not-found 2>/dev/null || true
+	-$(DEVPOD_CMD) provider delete $(PROVIDER_NAME) --ignore-not-found 2>/dev/null || true
+	@echo "$(YELLOW)Installing provider...$(NC)"
+	@$(MAKE) install-local 

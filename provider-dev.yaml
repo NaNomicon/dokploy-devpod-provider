@@ -1,63 +1,83 @@
-name: dokploy
-version: v0.2.0
-description: "Dokploy provider for DevPod - Create and manage development machines via Dokploy"
-icon: https://raw.githubusercontent.com/Dokploy/dokploy/refs/heads/canary/apps/dokploy/logo.png
+name: dokploy-dev
+version: ##VERSION##
+description: |-
+  DevPod on Dokploy (Development Version)
 
+  This provider allows you to create and manage development workspaces on Dokploy.
+
+  Features:
+  - Automatic SSH setup with key-based authentication
+  - Docker-in-Docker support for development containers
+  - Port mapping for SSH access
+  - Secure workspace isolation
+
+  Requirements:
+  - Dokploy server with API access
+  - Valid API token with application management permissions
+
+icon: https://raw.githubusercontent.com/NaNomicon/dokploy-devpod-provider/main/dokploy.svg
+optionGroups:
+  - options:
+      - DOKPLOY_SERVER_URL
+      - DOKPLOY_API_TOKEN
+    name: "Dokploy Configuration"
+    defaultVisible: true
+  - options:
+      - DOKPLOY_PROJECT_NAME
+    name: "Advanced Configuration"
+    defaultVisible: false
 options:
   DOKPLOY_SERVER_URL:
-    description: "URL of your Dokploy server (e.g., https://your-dokploy.com)"
+    description: The URL of your Dokploy server (e.g., https://dokploy.example.com)
     required: true
+    suggestions:
+      - https://dokploy.example.com
+      - https://your-dokploy-server.com
   DOKPLOY_API_TOKEN:
-    description: "API token for Dokploy authentication (generate from Settings > Profile > API/CLI)"
+    description: Your Dokploy API token (generate from Settings > API)
     required: true
     password: true
   DOKPLOY_PROJECT_NAME:
-    description: "Dokploy project name for organizing workspaces"
+    description: Dokploy project name for DevPod workspaces
     default: "devpod-workspaces"
-  DOKPLOY_SERVER_ID:
-    description: "Dokploy server ID for multi-server deployments (optional)"
-    required: false
-  MACHINE_TYPE:
-    description: "Machine type/size for the workspace"
-    default: "small"
-    enum:
-      - "small"
-      - "medium"
-      - "large"
-  AGENT_PATH:
-    description: "The path where to inject the DevPod agent to"
-    default: "/opt/devpod/agent"
-
 agent:
-  path: ${AGENT_PATH}
-  driver: docker
-  inactivityTimeout: 10m
-
+  path: devpod
+  dataPath: /home/devpod/.devpod
+  injectDockerCredentials: true
+  injectGitCredentials: true
+  dockerPath: /usr/bin/docker
+  containerInactivityTimeout: 10m
+  exec:
+    shutdown: |-
+      export DOKPLOY_PROVIDER_DEV=true
+      ./dist/dokploy-provider stop
 exec:
-  # Initialize the provider (test API connection)
-  init: |-
-    ./dist/dokploy-provider init
-
-  # Create a new machine/container in Dokploy
+  # Create a new workspace
   create: |-
+    export DOKPLOY_PROVIDER_DEV=true
     ./dist/dokploy-provider create
 
-  # Delete the machine
+  # Delete a workspace
   delete: |-
+    export DOKPLOY_PROVIDER_DEV=true
     ./dist/dokploy-provider delete
 
-  # Start a stopped machine
+  # Start a workspace
   start: |-
+    export DOKPLOY_PROVIDER_DEV=true
     ./dist/dokploy-provider start
 
-  # Stop the machine
+  # Stop a workspace
   stop: |-
+    export DOKPLOY_PROVIDER_DEV=true
     ./dist/dokploy-provider stop
 
-  # Get machine status
+  # Get workspace status
   status: |-
+    export DOKPLOY_PROVIDER_DEV=true
     ./dist/dokploy-provider status
 
   # Execute commands via SSH
   command: |-
-    ./dist/dokploy-provider command
+    export DOKPLOY_PROVIDER_DEV=true
+    ./dist/dokploy-provider command ${COMMAND}
