@@ -9,8 +9,11 @@
 [![Go](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Status](https://img.shields.io/badge/status-stable-green.svg)](#current-status)
+[![DevPod](https://img.shields.io/badge/DevPod-v0.6.15-blue.svg)](https://github.com/loft-sh/devpod)
+[![Dokploy](https://img.shields.io/badge/Dokploy-v0.22.7-green.svg)](https://github.com/Dokploy/dokploy)
 
 [Installation](#installation) • [Usage](#usage) • [Contributing](#contributing)
+
 [![Open in DevPod!](https://devpod.sh/assets/open-in-devpod.svg)](https://devpod.sh/open#https://github.com/NaNomicon/dokploy-devpod-provider)
 
 </div>
@@ -50,6 +53,15 @@ DevPod → Dokploy Provider → Docker Compose Service → SSH Access → Your C
 - [DevPod](https://devpod.sh/) installed locally
 - Dokploy server with API access
 - API token with project creation permissions
+
+## 🔄 Compatibility
+
+| Component   | Supported Version | Status                |
+| ----------- | ----------------- | --------------------- |
+| **DevPod**  | v0.6.15           | ✅ Tested & Supported |
+| **Dokploy** | v0.22.7           | ✅ Tested & Supported |
+
+> **⚠️ Note**: We currently do not offer backward compatibility. Always use the exact versions listed above for the best experience. Newer versions may work but are not guaranteed to be compatible until tested and updated here.
 
 ## 🚀 Installation
 

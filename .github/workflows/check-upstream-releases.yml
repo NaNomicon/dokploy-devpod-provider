@@ -1,0 +1,214 @@
+name: Check Upstream Releases
+
+on:
+  schedule:
+    # Check for new releases daily at 9 AM UTC
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    # Allow manual triggering
+
+jobs:
+  check-releases:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check DevPod releases
+        id: devpod
+        run: |
+          # Get the latest release from DevPod repository
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/loft-sh/devpod/releases/latest | jq -r '.tag_name')
+          CURRENT_VERSION="v0.6.15"
+
+          echo "latest=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          if [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
+            echo "new_version=true" >> $GITHUB_OUTPUT
+            echo "DevPod: New version $LATEST_RELEASE available (current: $CURRENT_VERSION)"
+          else
+            echo "new_version=false" >> $GITHUB_OUTPUT
+            echo "DevPod: Up to date ($CURRENT_VERSION)"
+          fi
+
+      - name: Check Dokploy releases
+        id: dokploy
+        run: |
+          # Get the latest release from Dokploy repository
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/Dokploy/dokploy/releases/latest | jq -r '.tag_name')
+          CURRENT_VERSION="v0.22.7"
+
+          echo "latest=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+
+          if [ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]; then
+            echo "new_version=true" >> $GITHUB_OUTPUT
+            echo "Dokploy: New version $LATEST_RELEASE available (current: $CURRENT_VERSION)"
+          else
+            echo "new_version=false" >> $GITHUB_OUTPUT
+            echo "Dokploy: Up to date ($CURRENT_VERSION)"
+          fi
+
+      - name: Create DevPod compatibility issue
+        if: steps.devpod.outputs.new_version == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { latest, current } = {
+              latest: '${{ steps.devpod.outputs.latest }}',
+              current: '${{ steps.devpod.outputs.current }}'
+            };
+
+            const title = `🔄 DevPod ${latest} Released - Compatibility Check Required`;
+            const body = `
+            ## DevPod Version Update Available
+
+            **Current Version**: ${current}  
+            **New Version**: ${latest}
+
+            ### 📋 Compatibility Checklist
+
+            - [ ] Test provider with DevPod ${latest}
+            - [ ] Verify all DevPod provider commands work correctly
+            - [ ] Check for any breaking API changes in [DevPod releases](https://github.com/loft-sh/devpod/releases/tag/${latest})
+            - [ ] Update go.mod dependencies if needed
+            - [ ] Test workspace creation and SSH connectivity  
+            - [ ] Test workspace deletion and cleanup
+            - [ ] Update README.md compatibility table
+            - [ ] Update version badges in README.md
+            - [ ] Update this workflow's current version check
+
+            ### 🔗 Useful Links
+
+            - [DevPod ${latest} Release Notes](https://github.com/loft-sh/devpod/releases/tag/${latest})
+            - [DevPod Provider Development Docs](https://devpod.sh/docs/developing-providers/quickstart)
+            - [Current Provider Configuration](./provider.yaml)
+
+            ### 🚀 Testing Commands
+
+            \`\`\`bash
+            # Install DevPod ${latest} and test provider
+            devpod provider delete dokploy-dev
+            make install-dev
+            make test-git
+            make test-docker
+            \`\`\`
+
+            ---
+            *This issue was automatically created by the upstream release monitoring workflow.*
+            `;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'compatibility,devpod'
+            });
+
+            const existingIssue = issues.data.find(issue => 
+              issue.title.includes(`DevPod ${latest}`)
+            );
+
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['compatibility', 'devpod', 'enhancement']
+              });
+              console.log(`Created issue for DevPod ${latest}`);
+            } else {
+              console.log(`Issue for DevPod ${latest} already exists`);
+            }
+
+      - name: Create Dokploy compatibility issue
+        if: steps.dokploy.outputs.new_version == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { latest, current } = {
+              latest: '${{ steps.dokploy.outputs.latest }}',
+              current: '${{ steps.dokploy.outputs.current }}'
+            };
+
+            const title = `🔄 Dokploy ${latest} Released - Compatibility Check Required`;
+            const body = `
+            ## Dokploy Version Update Available
+
+            **Current Version**: ${current}  
+            **New Version**: ${latest}
+
+            ### 📋 Compatibility Checklist
+
+            - [ ] Test provider with Dokploy ${latest}
+            - [ ] Verify all Dokploy API endpoints still work
+            - [ ] Check for any breaking API changes in [Dokploy releases](https://github.com/Dokploy/dokploy/releases/tag/${latest})
+            - [ ] Test Docker Compose service creation and management
+            - [ ] Test SSH port mapping and connectivity
+            - [ ] Verify project creation and management
+            - [ ] Test service deployment and lifecycle
+            - [ ] Update README.md compatibility table
+            - [ ] Update version badges in README.md  
+            - [ ] Update this workflow's current version check
+
+            ### 🔗 Useful Links
+
+            - [Dokploy ${latest} Release Notes](https://github.com/Dokploy/dokploy/releases/tag/${latest})
+            - [Dokploy API Documentation](https://docs.dokploy.com/docs/core)
+            - [Current API Client](./pkg/dokploy/client.go)
+
+            ### 🚀 Testing Commands
+
+            \`\`\`bash
+            # Test against Dokploy ${latest} server
+            make test-lifecycle  # Full create/delete cycle
+            make test-git       # Test Git repository workspace
+            make test-docker    # Test Docker image workspace
+            \`\`\`
+
+            ### 🔍 API Changes to Check
+
+            - Project management endpoints (/api/project.*)
+            - Docker Compose endpoints (/api/compose.*)
+            - Service deployment endpoints
+            - Authentication mechanism changes
+
+            ---
+            *This issue was automatically created by the upstream release monitoring workflow.*
+            `;
+
+            // Check if issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'compatibility,dokploy'
+            });
+
+            const existingIssue = issues.data.find(issue => 
+              issue.title.includes(`Dokploy ${latest}`)
+            );
+
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['compatibility', 'dokploy', 'enhancement']
+              });
+              console.log(`Created issue for Dokploy ${latest}`);
+            } else {
+              console.log(`Issue for Dokploy ${latest} already exists`);
+            }
+
+      - name: Summary
+        run: |
+          echo "## Release Check Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Current | Latest | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|---------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| DevPod | ${{ steps.devpod.outputs.current }} | ${{ steps.devpod.outputs.latest }} | ${{ steps.devpod.outputs.new_version == 'true' && '🔄 New version available' || '✅ Up to date' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dokploy | ${{ steps.dokploy.outputs.current }} | ${{ steps.dokploy.outputs.latest }} | ${{ steps.dokploy.outputs.new_version == 'true' && '🔄 New version available' || '✅ Up to date' }} |" >> $GITHUB_STEP_SUMMARY

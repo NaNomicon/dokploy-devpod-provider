@@ -1,0 +1,92 @@
+name: Manual Version Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      devpod_version:
+        description: "DevPod version to update to (e.g., v0.6.16)"
+        required: false
+        type: string
+      dokploy_version:
+        description: "Dokploy version to update to (e.g., v0.22.8)"
+        required: false
+        type: string
+      update_readme:
+        description: "Update README.md with new versions"
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  update-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update DevPod version in workflow
+        if: inputs.devpod_version != ''
+        run: |
+          NEW_VERSION="${{ inputs.devpod_version }}"
+          echo "Updating DevPod version to $NEW_VERSION"
+
+          # Update the workflow file
+          sed -i "s/CURRENT_VERSION=\"v[0-9]*\.[0-9]*\.[0-9]*\"/CURRENT_VERSION=\"$NEW_VERSION\"/" .github/workflows/check-upstream-releases.yml
+
+          # Update README if requested
+          if [ "${{ inputs.update_readme }}" = "true" ]; then
+            sed -i "s/DevPod-v[0-9]*\.[0-9]*\.[0-9]*-blue/DevPod-$NEW_VERSION-blue/" README.md
+            sed -i "s/| \*\*DevPod\*\* | v[0-9]*\.[0-9]*\.[0-9]* |/| **DevPod** | $NEW_VERSION |/" README.md
+          fi
+
+      - name: Update Dokploy version in workflow
+        if: inputs.dokploy_version != ''
+        run: |
+          NEW_VERSION="${{ inputs.dokploy_version }}"
+          echo "Updating Dokploy version to $NEW_VERSION"
+
+          # Update the workflow file (look for the second CURRENT_VERSION which is for Dokploy)
+          sed -i '/Check Dokploy releases/,/Check DevPod/ s/CURRENT_VERSION=\"v[0-9]*\.[0-9]*\.[0-9]*\"/CURRENT_VERSION=\"'$NEW_VERSION'\"/' .github/workflows/check-upstream-releases.yml
+
+          # Update README if requested
+          if [ "${{ inputs.update_readme }}" = "true" ]; then
+            sed -i "s/Dokploy-v[0-9]*\.[0-9]*\.[0-9]*-green/Dokploy-$NEW_VERSION-green/" README.md
+            sed -i "s/| \*\*Dokploy\*\* | v[0-9]*\.[0-9]*\.[0-9]* |/| **Dokploy** | $NEW_VERSION |/" README.md
+          fi
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
+            chore: update compatibility versions
+
+            - DevPod: ${{ inputs.devpod_version || 'unchanged' }}
+            - Dokploy: ${{ inputs.dokploy_version || 'unchanged' }}
+          title: "chore: Update compatibility versions"
+          body: |
+            ## Version Update
+
+            This PR updates the supported/tested versions:
+
+            ${{ inputs.devpod_version != '' && format('- **DevPod**: Updated to {0}', inputs.devpod_version) || '- **DevPod**: No change' }}
+            ${{ inputs.dokploy_version != '' && format('- **Dokploy**: Updated to {0}', inputs.dokploy_version) || '- **Dokploy**: No change' }}
+
+            ### Changes Made
+
+            - Updated version checks in GitHub Actions workflow
+            ${{ inputs.update_readme == true && '- Updated README.md badges and compatibility table' || '- README.md left unchanged' }}
+
+            ### Testing Checklist
+
+            - [ ] Test provider with updated versions
+            - [ ] Verify all functionality works correctly
+            - [ ] Check for any breaking changes
+            - [ ] Update any necessary documentation
+
+            ---
+            *This PR was created by the manual version update workflow.*
+          branch: chore/update-versions-${{ github.run_number }}
+          delete-branch: true
