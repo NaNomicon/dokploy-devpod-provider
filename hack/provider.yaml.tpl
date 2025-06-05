@@ -1,5 +1,5 @@
 name: dokploy
-version: {{ env.Getenv "VERSION" }}
+version: {{ env.Getenv "VERSION_NUMBER" }}
 description: |-
   DevPod on Dokploy (Development Version)
 
@@ -45,23 +45,23 @@ binaries:
   DOKPLOY_PROVIDER_BINARY:
     - os: linux
       arch: amd64
-      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-linux-amd64
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION_TAG" }}/dokploy-provider-linux-amd64
       checksum: "{{ file.Read "dist/dokploy-provider-linux-amd64" | crypto.SHA256 }}"
     - os: linux
       arch: arm64
-      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-linux-arm64
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION_TAG" }}/dokploy-provider-linux-arm64
       checksum: "{{ file.Read "dist/dokploy-provider-linux-arm64" | crypto.SHA256 }}"
     - os: darwin
       arch: amd64
-      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-darwin-amd64
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION_TAG" }}/dokploy-provider-darwin-amd64
       checksum: "{{ file.Read "dist/dokploy-provider-darwin-amd64" | crypto.SHA256 }}"
     - os: darwin
       arch: arm64
-      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-darwin-arm64
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION_TAG" }}/dokploy-provider-darwin-arm64
       checksum: "{{ file.Read "dist/dokploy-provider-darwin-arm64" | crypto.SHA256 }}"
     - os: windows
       arch: amd64
-      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-windows-amd64.exe
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION_TAG" }}/dokploy-provider-windows-amd64.exe
       checksum: "{{ file.Read "dist/dokploy-provider-windows-amd64.exe" | crypto.SHA256 }}"
 
 exec:

@@ -326,12 +326,12 @@ generate-provider: clean-dist build-all ## Generate provider.yaml from template 
 	fi
 	@echo "$(YELLOW)Generating provider.yaml with version $(VERSION)...$(NC)"
 	@cp provider.yaml provider.yaml.backup 2>/dev/null || true
-	VERSION=v$(VERSION) GITHUB_REPO=$(GITHUB_REPO) gomplate -f hack/provider.yaml.tpl > provider.yaml
+	VERSION_NUMBER=$(VERSION) VERSION_TAG=v$(VERSION) GITHUB_REPO=$(GITHUB_REPO) gomplate -f hack/provider.yaml.tpl > provider.yaml
 	@echo "$(GREEN)✓ provider.yaml generated with template$(NC)"
 	@echo "$(YELLOW)Backup saved as provider.yaml.backup$(NC)"
 
 .PHONY: release-prepare
-release-prepare: validate version-check generate-provider ## Prepare everything for release using template
+release-prepare: version-check generate-provider validate ## Prepare everything for release using template
 	@echo "$(BLUE)Preparing release v$(VERSION)...$(NC)"
 	@echo "$(GREEN)✓ Release v$(VERSION) prepared successfully!$(NC)"
 	@echo ""
