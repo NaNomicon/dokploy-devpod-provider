@@ -194,6 +194,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development details.
 - [Dokploy](https://dokploy.com/) for the deployment infrastructure
 - [Docker](https://docker.com/) for making containers awesome
 - [cruizba/ubuntu-dind](https://hub.docker.com/r/cruizba/ubuntu-dind) for the excellent Ubuntu Docker-in-Docker base image
+- [STACKIT DevPod Provider](https://github.com/stackitcloud/devpod-provider-stackit/) for the amazing provider codebase
 
 ---
 

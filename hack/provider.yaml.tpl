@@ -1,5 +1,5 @@
 name: dokploy
-version: v0.1.1
+version: {{ env.Getenv "VERSION" }}
 description: |-
   DevPod on Dokploy (Development Version)
 
@@ -45,24 +45,24 @@ binaries:
   DOKPLOY_PROVIDER_BINARY:
     - os: linux
       arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.1/dokploy-provider-linux-amd64
-      checksum: "e5059e6d2b458c89e95eee76373064adc9179455782db98beadea20af0336e51"
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-linux-amd64
+      checksum: "{{ file.Read "dist/dokploy-provider-linux-amd64" | crypto.SHA256 }}"
     - os: linux
       arch: arm64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.1/dokploy-provider-linux-arm64
-      checksum: "a71879466fad3c053364bda615e87a1e0c6eab31623ca290fc8f3fcd141cd243"
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-linux-arm64
+      checksum: "{{ file.Read "dist/dokploy-provider-linux-arm64" | crypto.SHA256 }}"
     - os: darwin
       arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.1/dokploy-provider-darwin-amd64
-      checksum: "02b02d00d39e1dd10cb90e6830b75a2eaa2eb4592cabb98d1b00648eb2741e3a"
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-darwin-amd64
+      checksum: "{{ file.Read "dist/dokploy-provider-darwin-amd64" | crypto.SHA256 }}"
     - os: darwin
       arch: arm64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.1/dokploy-provider-darwin-arm64
-      checksum: "5e0eda5b9de08a18ade751b43fe0fa15d54689ae57c2068949410924c53666bf"
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-darwin-arm64
+      checksum: "{{ file.Read "dist/dokploy-provider-darwin-arm64" | crypto.SHA256 }}"
     - os: windows
       arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.1/dokploy-provider-windows-amd64.exe
-      checksum: "8c80d9f1a7bd7e27f7b69d0e40f69f55e741d6af4dec6ff9036243e9c0c14d0a"
+      path: https://github.com/{{ env.Getenv "GITHUB_REPO" }}/releases/download/{{ env.Getenv "VERSION" }}/dokploy-provider-windows-amd64.exe
+      checksum: "{{ file.Read "dist/dokploy-provider-windows-amd64.exe" | crypto.SHA256 }}"
 
 exec:
   # Initialize the provider (test API connection)
@@ -91,4 +91,4 @@ exec:
 
   # Execute commands via SSH
   command: |-
-    ${DOKPLOY_PROVIDER_BINARY} command
+    ${DOKPLOY_PROVIDER_BINARY} command 

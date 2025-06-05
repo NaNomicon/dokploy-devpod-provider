@@ -5,7 +5,7 @@
 PROVIDER_NAME := dokploy
 PROVIDER_FILE := provider.yaml
 PROVIDER_DEV_FILE := provider-dev.yaml
-VERSION := $(shell grep '^version:' $(PROVIDER_FILE) | sed 's/version: *v*//')
+VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.0.0-dev")
 GITHUB_REPO := NaNomicon/dokploy-devpod-provider
 TEST_WORKSPACE := test-workspace-$(shell date +%s)
 TEST_REPO := https://github.com/microsoft/vscode-remote-try-node.git
@@ -61,19 +61,25 @@ build-versioned: ## Build versioned binary for current platform
 	@echo "$(GREEN)✓ Versioned binary built: $(BUILD_DIR)/$(VERSIONED_BINARY_NAME)$(NC)"
 
 .PHONY: build-all
-build-all: ## Build binaries for all supported platforms
+build-all: ## Build binaries for all supported platforms using gox
 	@echo "$(BLUE)Building $(BINARY_NAME) v$(VERSION) for all platforms...$(NC)"
 	@mkdir -p $(BUILD_DIR)
-	@echo "$(YELLOW)Building for Linux AMD64...$(NC)"
-	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
-	@echo "$(YELLOW)Building for Linux ARM64...$(NC)"
-	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .
-	@echo "$(YELLOW)Building for macOS AMD64...$(NC)"
-	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .
-	@echo "$(YELLOW)Building for macOS ARM64...$(NC)"
-	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .
-	@echo "$(YELLOW)Building for Windows AMD64...$(NC)"
-	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .
+	@if command -v gox >/dev/null 2>&1; then \
+		echo "$(YELLOW)Using gox for cross-compilation...$(NC)"; \
+		CGO_ENABLED=0 gox -output="$(BUILD_DIR)/$(BINARY_NAME)-{{.OS}}-{{.Arch}}" -os="linux darwin windows" -arch="amd64 arm64" $(LDFLAGS) .; \
+	else \
+		echo "$(YELLOW)Gox not found, using standard Go build...$(NC)"; \
+		echo "$(YELLOW)Building for Linux AMD64...$(NC)"; \
+		GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .; \
+		echo "$(YELLOW)Building for Linux ARM64...$(NC)"; \
+		GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 .; \
+		echo "$(YELLOW)Building for macOS AMD64...$(NC)"; \
+		GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64 .; \
+		echo "$(YELLOW)Building for macOS ARM64...$(NC)"; \
+		GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 .; \
+		echo "$(YELLOW)Building for Windows AMD64...$(NC)"; \
+		GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .; \
+	fi
 	@echo "$(GREEN)✓ All binaries built in $(BUILD_DIR)/$(NC)"
 
 .PHONY: build-all-versioned
@@ -300,8 +306,32 @@ validate-provider-checksums: checksums ## Validate that provider.yaml has correc
 		exit 1; \
 	fi
 
+.PHONY: clean-dist
+clean-dist: ## Clean only the dist directory
+	@echo "$(YELLOW)Cleaning dist directory...$(NC)"
+	rm -rf $(BUILD_DIR)
+	@echo "$(GREEN)✓ Dist directory cleaned$(NC)"
+
+.PHONY: generate-provider
+generate-provider: clean-dist build-all ## Generate provider.yaml from template with correct checksums
+	@echo "$(BLUE)Generating provider.yaml from template...$(NC)"
+	@if [ ! -f hack/provider.yaml.tpl ]; then \
+		echo "$(RED)Error: hack/provider.yaml.tpl not found$(NC)"; \
+		exit 1; \
+	fi
+	@if ! command -v gomplate >/dev/null 2>&1; then \
+		echo "$(RED)Error: gomplate not installed$(NC)"; \
+		echo "$(YELLOW)Install with: brew install gomplate$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)Generating provider.yaml with version $(VERSION)...$(NC)"
+	@cp provider.yaml provider.yaml.backup 2>/dev/null || true
+	VERSION=v$(VERSION) GITHUB_REPO=$(GITHUB_REPO) gomplate -f hack/provider.yaml.tpl > provider.yaml
+	@echo "$(GREEN)✓ provider.yaml generated with template$(NC)"
+	@echo "$(YELLOW)Backup saved as provider.yaml.backup$(NC)"
+
 .PHONY: release-prepare
-release-prepare: validate version-check build-all checksums update-provider-checksums validate-provider-checksums ## Prepare everything for release
+release-prepare: validate version-check generate-provider ## Prepare everything for release using template
 	@echo "$(BLUE)Preparing release v$(VERSION)...$(NC)"
 	@echo "$(GREEN)✓ Release v$(VERSION) prepared successfully!$(NC)"
 	@echo ""
@@ -309,7 +339,7 @@ release-prepare: validate version-check build-all checksums update-provider-chec
 	@ls -la $(BUILD_DIR)/
 	@echo ""
 	@echo "$(BLUE)Next steps:$(NC)"
-	@echo "  1. Review the updated provider.yaml (URLs and checksums updated)"
+	@echo "  1. Review the generated provider.yaml (URLs and checksums auto-generated)"
 	@echo "  2. Test the provider: make test-docker"
 	@echo "  3. Create release: make tag-release"
 	@echo "  4. Upload binaries to GitHub releases"
@@ -372,7 +402,7 @@ setup: ## Install required development tools
 	@if command -v brew >/dev/null 2>&1; then \
 		echo "$(GREEN)✓ Homebrew found$(NC)"; \
 		echo "$(YELLOW)Installing tools via Homebrew...$(NC)"; \
-		brew install yq jq shellcheck 2>/dev/null || true; \
+		brew install yq jq shellcheck gox gomplate 2>/dev/null || true; \
 		echo "$(YELLOW)Checking DevPod installation...$(NC)"; \
 		if [ -d "/Applications/DevPod.app" ] || command -v devpod >/dev/null 2>&1; then \
 			echo "$(GREEN)✓ DevPod already installed$(NC)"; \
@@ -443,6 +473,20 @@ check-tools: ## Check if required tools are installed
 	else \
 		echo "$(RED)✗ missing$(NC)"; \
 		echo "  Install: brew install shellcheck  # or make setup"; \
+	fi
+	@echo -n "gox: "; \
+	if command -v gox >/dev/null 2>&1; then \
+		echo "$(GREEN)✓ installed ($(shell gox -version))$(NC)"; \
+	else \
+		echo "$(RED)✗ missing$(NC)"; \
+		echo "  Install: brew install gox  # or make setup"; \
+	fi
+	@echo -n "gomplate: "; \
+	if command -v gomplate >/dev/null 2>&1; then \
+		echo "$(GREEN)✓ installed ($(shell gomplate --version))$(NC)"; \
+	else \
+		echo "$(RED)✗ missing$(NC)"; \
+		echo "  Install: brew install gomplate  # or make setup"; \
 	fi
 	@echo -n "devpod: "; \
 	if command -v devpod >/dev/null 2>&1; then \
@@ -868,54 +912,69 @@ docs: ## Generate documentation
 .PHONY: version-check
 version-check: ## Check if version is properly set
 	@echo "$(BLUE)Current version: $(VERSION)$(NC)"
-	@if [ -z "$(VERSION)" ]; then \
-		echo "$(RED)Error: Version not found in $(PROVIDER_FILE)$(NC)"; \
+	@if [ -z "$(VERSION)" ] || [ "$(VERSION)" = "0.0.0-dev" ]; then \
+		echo "$(RED)Error: No Git tags found. Create a tag first with 'git tag v0.1.0'$(NC)"; \
 		exit 1; \
 	fi
-
-# Helper function to update version and URLs
-define update-version-and-urls
-	@current_version=$(VERSION); \
-	new_version=$(1); \
-	echo "$(YELLOW)Updating version from $$current_version to $$new_version$(NC)"; \
-	if [[ "$$OSTYPE" == "darwin"* ]]; then \
-		sed -i.bak "s/version: v*$$current_version/version: v$$new_version/" $(PROVIDER_FILE); \
-		sed -i.bak2 "s|releases/download/[^/]*/|releases/download/v$$new_version/|g" $(PROVIDER_FILE); \
-	else \
-		sed -i.bak "s/version: v*$$current_version/version: v$$new_version/" $(PROVIDER_FILE); \
-		sed -i.bak2 "s|releases/download/[^/]*/|releases/download/v$$new_version/|g" $(PROVIDER_FILE); \
-	fi; \
-	rm -f $(PROVIDER_FILE).bak $(PROVIDER_FILE).bak2; \
-	echo "$(GREEN)✓ Version bumped from $$current_version to $$new_version$(NC)"; \
-	echo "$(GREEN)✓ URLs updated to use v$$new_version$(NC)"
-endef
+	@echo "$(GREEN)✓ Version $(VERSION) detected from Git tags$(NC)"
 
 .PHONY: version-bump-patch
-version-bump-patch: ## Bump patch version (x.y.Z) and update URLs
+version-bump-patch: ## Bump patch version (x.y.Z) and create Git tag
 	@echo "$(BLUE)Bumping patch version...$(NC)"
-	$(call update-version-and-urls,$$(echo $(VERSION) | awk -F. '{$$3++; print $$1"."$$2"."$$3}'))
+	@current_version=$(VERSION); \
+	new_version=$$(echo $$current_version | awk -F. '{$$3++; print $$1"."$$2"."$$3}'); \
+	echo "$(YELLOW)Creating Git tag: v$$new_version$(NC)"; \
+	if git tag | grep -q "^v$$new_version$$"; then \
+		echo "$(RED)Error: Tag v$$new_version already exists$(NC)"; \
+		exit 1; \
+	fi; \
+	git tag -a "v$$new_version" -m "Bump patch version to v$$new_version"; \
+	echo "$(GREEN)✓ Version bumped from $$current_version to $$new_version$(NC)"; \
+	echo "$(GREEN)✓ Git tag v$$new_version created$(NC)"; \
+	echo "$(YELLOW)Run 'make generate-provider' to update provider.yaml$(NC)"
 
 .PHONY: version-bump-minor
-version-bump-minor: ## Bump minor version (x.Y.z) and update URLs
+version-bump-minor: ## Bump minor version (x.Y.z) and create Git tag
 	@echo "$(BLUE)Bumping minor version...$(NC)"
-	$(call update-version-and-urls,$$(echo $(VERSION) | awk -F. '{$$2++; $$3=0; print $$1"."$$2"."$$3}'))
+	@current_version=$(VERSION); \
+	new_version=$$(echo $$current_version | awk -F. '{$$2++; $$3=0; print $$1"."$$2"."$$3}'); \
+	echo "$(YELLOW)Creating Git tag: v$$new_version$(NC)"; \
+	if git tag | grep -q "^v$$new_version$$"; then \
+		echo "$(RED)Error: Tag v$$new_version already exists$(NC)"; \
+		exit 1; \
+	fi; \
+	git tag -a "v$$new_version" -m "Bump minor version to v$$new_version"; \
+	echo "$(GREEN)✓ Version bumped from $$current_version to $$new_version$(NC)"; \
+	echo "$(GREEN)✓ Git tag v$$new_version created$(NC)"; \
+	echo "$(YELLOW)Run 'make generate-provider' to update provider.yaml$(NC)"
 
 .PHONY: version-bump-major
-version-bump-major: ## Bump major version (X.y.z) and update URLs
+version-bump-major: ## Bump major version (X.y.z) and create Git tag
 	@echo "$(BLUE)Bumping major version...$(NC)"
-	$(call update-version-and-urls,$$(echo $(VERSION) | awk -F. '{$$1++; $$2=0; $$3=0; print $$1"."$$2"."$$3}'))
+	@current_version=$(VERSION); \
+	new_version=$$(echo $$current_version | awk -F. '{$$1++; $$2=0; $$3=0; print $$1"."$$2"."$$3}'); \
+	echo "$(YELLOW)Creating Git tag: v$$new_version$(NC)"; \
+	if git tag | grep -q "^v$$new_version$$"; then \
+		echo "$(RED)Error: Tag v$$new_version already exists$(NC)"; \
+		exit 1; \
+	fi; \
+	git tag -a "v$$new_version" -m "Bump major version to v$$new_version"; \
+	echo "$(GREEN)✓ Version bumped from $$current_version to $$new_version$(NC)"; \
+	echo "$(GREEN)✓ Git tag v$$new_version created$(NC)"; \
+	echo "$(YELLOW)Run 'make generate-provider' to update provider.yaml$(NC)"
 
 .PHONY: tag-release
-tag-release: validate version-check ## Create and push git tag for release
-	@echo "$(BLUE)Creating release tag v$(VERSION)...$(NC)"
+tag-release: validate version-check ## Create and push signed git tag for release
+	@echo "$(BLUE)Creating signed release tag v$(VERSION)...$(NC)"
 	@if git tag | grep -q "^v$(VERSION)$$"; then \
-		echo "$(RED)Error: Tag v$(VERSION) already exists$(NC)"; \
+		echo "$(YELLOW)Tag v$(VERSION) already exists$(NC)"; \
+	else \
+		echo "$(RED)Error: Tag v$(VERSION) does not exist. Use version-bump-* targets first$(NC)"; \
 		exit 1; \
 	fi
-	git add $(PROVIDER_FILE)
-	git commit -m "Release v$(VERSION)" || true
-	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
-	@echo "$(GREEN)Release tag v$(VERSION) created$(NC)"
+	@echo "$(YELLOW)Pushing tag to origin...$(NC)"
+	git push origin v$(VERSION)
+	@echo "$(GREEN)✓ Release tag v$(VERSION) pushed to GitHub$(NC)"
 
 .PHONY: release
 release: release-prepare test-docker tag-release ## Create a full release (prepare, test, tag)
@@ -1000,12 +1059,12 @@ help: ## Display this help
 	@echo "  brew install yq jq shellcheck  # Manual install (macOS)"
 	@echo ""
 	@echo "$(BLUE)Release Management:$(NC)"
-	@echo "  make build-all            # Build binaries for all platforms"
-	@echo "  make checksums            # Generate SHA256 checksums"
-	@echo "  make show-checksums       # Display generated checksums"
-	@echo "  make verify-checksums     # Verify checksums against binaries"
-	@echo "  make release-prepare      # Complete release preparation (URLs + checksums)"
-	@echo "  make version-bump-patch   # Bump patch version (0.1.0 -> 0.1.1)"
+	@echo "  make version-bump-patch   # Bump patch version (0.1.0 -> 0.1.1) and create Git tag"
+	@echo "  make version-bump-minor   # Bump minor version (0.1.0 -> 0.2.0) and create Git tag"
+	@echo "  make version-bump-major   # Bump major version (0.1.0 -> 1.0.0) and create Git tag"
+	@echo "  make generate-provider    # Generate provider.yaml from Git tag version"
+	@echo "  make release-prepare      # Complete release preparation (build + provider.yaml)"
+	@echo "  make tag-release          # Push Git tag to GitHub for release"
 	@echo "  make restore-provider     # Restore provider.yaml from backup"
 	@echo ""
 	@echo "$(BLUE)GitHub Installation:$(NC)"

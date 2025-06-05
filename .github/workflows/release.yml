@@ -20,24 +20,14 @@ jobs:
         with:
           go-version: "1.22"
 
-      - name: Build binaries
-        run: |
-          mkdir -p dist
-          # Build for all platforms
-          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/dokploy-provider-linux-amd64 .
-          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/dokploy-provider-linux-arm64 .
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist/dokploy-provider-darwin-amd64 .
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/dokploy-provider-darwin-arm64 .
-          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/dokploy-provider-windows-amd64.exe .
+      - name: Install required tools
+        run: make setup
 
-      - name: Generate checksums
-        run: |
-          cd dist
-          for file in dokploy-provider-*; do
-            if [ -f "$file" ]; then
-              sha256sum "$file" > "$file.sha256"
-            fi
-          done
+      - name: Generate release artifacts
+        run: make release-prepare
+
+      - name: Validate release
+        run: make validate-provider-checksums
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -69,9 +59,7 @@ jobs:
             sha256sum -c dokploy-provider-linux-amd64.sha256
             ```
 
-            All Git tags and commits are signed and verified by GitHub.
-
-      - name: Update latest release
+      - name: Release Summary
         run: |
           echo "Release ${{ github.ref_name }} created successfully"
           echo "Provider can now be installed with:"

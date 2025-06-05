@@ -51,7 +51,7 @@ dev/
 # Build artifacts
 dist/
 build/
-dokploy-provider
+provider.yaml
 
 # Example providers (for reference only)
 example/
