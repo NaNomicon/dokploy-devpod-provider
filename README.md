@@ -11,6 +11,7 @@
 [![Status](https://img.shields.io/badge/status-stable-green.svg)](#current-status)
 
 [Installation](#installation) • [Usage](#usage) • [Contributing](#contributing)
+[![Open in DevPod!](https://devpod.sh/assets/open-in-devpod.svg)](https://devpod.sh/open#https://github.com/NaNomicon/dokploy-devpod-provider)
 
 </div>
 
