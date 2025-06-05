@@ -1,0 +1,25 @@
+version: "3.8"
+
+services:
+  devpod-workspace:
+    image: cruizba/ubuntu-dind:latest
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "__SSH_PORT_PLACEHOLDER__:22"
+    networks:
+      - dokploy-network
+    environment:
+      - DOCKER_TLS_CERTDIR=
+      - DOCKER_DRIVER=overlay2
+      - DEVPOD_WORKSPACE=true
+      - SSH_PUBLIC_KEY=__SSH_PUBLIC_KEY_PLACEHOLDER__
+    volumes:
+      - /var/lib/docker
+      - ./workspace-data:/workspace
+    command: >
+      bash -c "__SETUP_SCRIPT_PLACEHOLDER__"
+
+networks:
+  dokploy-network:
+    external: true

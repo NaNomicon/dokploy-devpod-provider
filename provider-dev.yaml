@@ -49,13 +49,21 @@ options:
   INJECT_DOCKER_CREDENTIALS:
     description: "If DevPod should inject docker credentials into the remote host"
     default: "true"
+  AGENT_PATH:
+    description: The path where to inject the DevPod agent to.
+    default: /opt/devpod/agent
+  AGENT_DATA_PATH:
+    description: The path where to store the agent data.
+    default: /opt/devpod/agent-data
 
 agent:
-  path: ${DEVPOD}
-  driver: docker
+  path: ${AGENT_PATH}
+  dataPath: ${AGENT_DATA_PATH}
   inactivityTimeout: ${INACTIVITY_TIMEOUT}
   injectGitCredentials: ${INJECT_GIT_CREDENTIALS}
   injectDockerCredentials: ${INJECT_DOCKER_CREDENTIALS}
+  docker:
+    install: true
 
 exec:
   # Create a new workspace

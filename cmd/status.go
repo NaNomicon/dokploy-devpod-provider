@@ -57,7 +57,7 @@ func runStatus() error {
 		logger.SetLevel(logrus.DebugLevel)
 	}
 
-	logger.Debugf("=== Status Check Started ===")
+	logger.Debugf("=== Status Check Started (Docker Compose Mode) ===")
 	logger.Debugf("Development mode: %v", isDev)
 
 	machineID, err := getMachineIDFromContext()
@@ -67,7 +67,7 @@ func runStatus() error {
 		return nil
 	}
 
-	logger.Debugf("Starting status check for machine: %s", machineID)
+	logger.Debugf("Starting status check for compose service: %s", machineID)
 
 	// Load options from environment
 	opts, err := options.LoadFromEnv()
@@ -80,50 +80,50 @@ func runStatus() error {
 	// Create Dokploy client
 	dokployClient := dokploy.NewClient(opts, logger)
 
-	// Get application status from Dokploy
-	dokployStatus, err := dokployClient.GetApplicationStatus(machineID)
+	// Get Docker Compose service status from Dokploy
+	dokployStatus, err := dokployClient.GetComposeStatus(machineID)
 	if err != nil {
-		logger.Debugf("Failed to get application status: %v", err)
+		logger.Debugf("Failed to get compose service status: %v", err)
 		fmt.Println(client.StatusNotFound)
 		return nil
 	}
 
-	logger.Debugf("Dokploy status: %s", dokployStatus)
+	logger.Debugf("Dokploy compose status: %s", dokployStatus)
 
-	// If Dokploy says the application is not running, return that status
+	// If Dokploy says the compose service is not running, return that status
 	if dokployStatus != client.StatusRunning {
-		logger.Debugf("Returning Dokploy status: %s", dokployStatus)
+		logger.Debugf("Returning Dokploy compose status: %s", dokployStatus)
 		fmt.Println(dokployStatus)
 		return nil
 	}
 
 	// If Dokploy says it's running, check SSH readiness
-	logger.Debugf("Application is running in Dokploy, checking SSH readiness...")
+	logger.Debugf("Compose service is running in Dokploy, checking SSH readiness...")
 	
-	// First get the application to find its ID
-	appBasic, err := dokployClient.GetApplicationByName(machineID)
+	// First get the compose service to find its ID
+	composeBasic, err := dokployClient.GetComposeByName(machineID)
 	if err != nil {
-		logger.Debugf("Failed to get application details: %v", err)
+		logger.Debugf("Failed to get compose service details: %v", err)
 		fmt.Println(client.StatusBusy) // Return Busy if we can't check SSH
 		return nil
 	}
 
-	// Now get the full application details including ports
-	app, err := dokployClient.GetApplication(appBasic.ApplicationID)
+	// Now get the full compose service details
+	compose, err := dokployClient.GetCompose(composeBasic.ComposeID)
 	if err != nil {
-		logger.Debugf("Failed to get full application details: %v", err)
+		logger.Debugf("Failed to get full compose service details: %v", err)
 		fmt.Println(client.StatusBusy) // Return Busy if we can't check SSH
 		return nil
 	}
 
-	// Find SSH port mapping
-	var sshPort int
-	for _, port := range app.Ports {
-		if port.TargetPort == 22 && port.Protocol == "tcp" {
-			sshPort = port.PublishedPort
-			logger.Debugf("Found SSH port mapping: %d -> 22", sshPort)
-			break
-		}
+	// For Docker Compose, the port mapping is embedded in the compose file
+	// We need to extract it from the compose configuration
+	// Since we know we set the port in create.go, we can try to derive it
+	sshPort, err := extractSSHPortFromCompose(compose, opts, logger)
+	if err != nil {
+		logger.Debugf("Failed to extract SSH port from compose service: %v", err)
+		fmt.Println(client.StatusBusy) // Still setting up
+		return nil
 	}
 
 	if sshPort == 0 {
@@ -155,6 +155,77 @@ func runStatus() error {
 
 	logger.Debugf("=== Status Check Completed ===")
 	return nil
+}
+
+func extractSSHPortFromCompose(compose *dokploy.Compose, opts *options.Options, logger *logrus.Logger) (int, error) {
+	// For Docker Compose services, we need to find the SSH port from the existing services
+	// Since we know the port was allocated during creation, we can check all projects for used ports
+	// and find the one that matches our naming pattern
+	
+	// Get all projects to check existing port usage
+	dokployClient := dokploy.NewClient(opts, logger)
+	allProjects, err := dokployClient.GetAllProjects()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get projects for port discovery: %w", err)
+	}
+
+	// Look for compose services and try to derive the SSH port
+	for _, project := range allProjects {
+		for _, projectCompose := range project.Composes {
+			if projectCompose.ComposeID == compose.ComposeID {
+				// This is our compose service
+				// The SSH port was allocated in the range 2222-2250
+				// We need to check each port to see which one is in use
+				
+				parsedURL, err := url.Parse(opts.DokployServerURL)
+				if err != nil {
+					continue
+				}
+				sshHost := strings.Split(parsedURL.Host, ":")[0]
+				
+				// Check ports in the range we use
+				for port := 2222; port <= 2250; port++ {
+					testAddress := fmt.Sprintf("%s:%d", sshHost, port)
+					conn, err := net.DialTimeout("tcp", testAddress, 1*time.Second)
+					if err == nil {
+						conn.Close()
+						// This port is accessible, check if it's SSH
+						if isSSHPort(sshHost, port, logger) {
+							logger.Debugf("Found SSH port for compose service: %d", port)
+							return port, nil
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("SSH port not found for compose service")
+}
+
+func isSSHPort(host string, port int, logger *logrus.Logger) bool {
+	testAddress := fmt.Sprintf("%s:%d", host, port)
+	
+	config := &ssh.ClientConfig{
+		User: "devpod",
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(), // Will fail, but allows testing SSH service
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         2 * time.Second,
+	}
+	
+	sshClient, err := ssh.Dial("tcp", testAddress, config)
+	if err != nil {
+		// Check if it's an authentication error (which means SSH is responding)
+		if strings.Contains(err.Error(), "unable to authenticate") || strings.Contains(err.Error(), "no supported methods remain") {
+			return true
+		}
+		return false
+	} else {
+		sshClient.Close()
+		return true
+	}
 }
 
 func checkSSHReadiness(host string, port int, logger *logrus.Logger) bool {

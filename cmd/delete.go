@@ -14,7 +14,7 @@ var deleteCmd = &cobra.Command{
 	Use:   "delete",
 	Short: "Delete a Dokploy workspace",
 	Long: `Delete an existing development workspace from Dokploy.
-This will remove the application and all associated resources.`,
+This will remove the Docker Compose service and all associated resources.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runDelete()
 	},
@@ -36,7 +36,7 @@ func runDelete() error {
 		return fmt.Errorf("failed to get machine ID: %w", err)
 	}
 
-	logger.Infof("Deleting Dokploy workspace: %s", machineID)
+	logger.Infof("Deleting Dokploy workspace via Docker Compose: %s", machineID)
 
 	// Load options from environment
 	opts, err := options.LoadFromEnv()
@@ -47,12 +47,12 @@ func runDelete() error {
 	// Create Dokploy client
 	client := dokploy.NewClient(opts, logger)
 
-	// Delete the application
-	err = client.DeleteApplicationByName(machineID)
+	// Delete the Docker Compose service
+	err = client.DeleteComposeByName(machineID)
 	if err != nil {
-		return fmt.Errorf("failed to delete application: %w", err)
+		return fmt.Errorf("failed to delete Docker Compose service: %w", err)
 	}
 
-	logger.Info("✓ Dokploy workspace deleted")
+	logger.Info("✓ Dokploy workspace deleted (Docker Compose service removed)")
 	return nil
 } 

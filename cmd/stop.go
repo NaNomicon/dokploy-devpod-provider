@@ -14,7 +14,7 @@ var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop a running Dokploy workspace",
 	Long: `Stop a currently running development workspace in Dokploy.
-This will stop the application container but preserve the workspace.`,
+This will stop the Docker Compose service but preserve the workspace.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runStop()
 	},
@@ -36,7 +36,7 @@ func runStop() error {
 		return fmt.Errorf("failed to get machine ID: %w", err)
 	}
 
-	logger.Infof("Stopping Dokploy workspace: %s", machineID)
+	logger.Infof("Stopping Dokploy workspace via Docker Compose: %s", machineID)
 
 	// Load options from environment
 	opts, err := options.LoadFromEnv()
@@ -47,12 +47,12 @@ func runStop() error {
 	// Create Dokploy client
 	client := dokploy.NewClient(opts, logger)
 
-	// Stop the application
-	err = client.StopApplicationByName(machineID)
+	// Stop the Docker Compose service
+	err = client.StopComposeByName(machineID)
 	if err != nil {
-		return fmt.Errorf("failed to stop application: %w", err)
+		return fmt.Errorf("failed to stop Docker Compose service: %w", err)
 	}
 
-	logger.Info("✓ Dokploy workspace stopped")
+	logger.Info("✓ Dokploy workspace stopped (Docker Compose service)")
 	return nil
 } 

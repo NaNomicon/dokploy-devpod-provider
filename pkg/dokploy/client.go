@@ -41,6 +41,7 @@ type Project struct {
 	Name        string        `json:"name"`
 	Description string        `json:"description"`
 	Applications []Application `json:"applications"`
+	Composes    []Compose     `json:"compose"`
 }
 
 // Application represents a Dokploy application
@@ -116,6 +117,43 @@ type CreatePortRequest struct {
 	TargetPort    int    `json:"targetPort"`
 	Protocol      string `json:"protocol"`
 	ApplicationID string `json:"applicationId"`
+}
+
+// Compose represents a Dokploy Docker Compose service
+type Compose struct {
+	ComposeID   string `json:"composeId"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ProjectID   string `json:"projectId"`
+	Status      string `json:"composeStatus"`
+	ComposeType string `json:"composeType"`
+}
+
+// CreateComposeRequest represents a Docker Compose creation request
+type CreateComposeRequest struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	ProjectID   string `json:"projectId"`
+	ComposeType string `json:"composeType"` // "docker-compose" or "stack"
+}
+
+// SaveComposeFileRequest represents a request to save docker-compose.yml content
+type SaveComposeFileRequest struct {
+	ComposeID     string `json:"composeId"`
+	DockerCompose string `json:"dockerCompose"`
+}
+
+// UpdateComposeRequest represents a request to update Docker Compose configuration
+type UpdateComposeRequest struct {
+	ComposeID    string `json:"composeId"`
+	ComposeFile  string `json:"composeFile"`
+	SourceType   string `json:"sourceType"`
+	ComposePath  string `json:"composePath"`
+}
+
+// DeployComposeRequest represents a Docker Compose deployment request
+type DeployComposeRequest struct {
+	ComposeID string `json:"composeId"`
 }
 
 // HealthCheck checks if the Dokploy server is accessible
@@ -417,6 +455,221 @@ func (c *Client) StopApplicationByName(applicationName string) error {
 	}
 	
 	return c.StopApplication(app.ApplicationID)
+}
+
+// CreateCompose creates a new Docker Compose service
+func (c *Client) CreateCompose(req CreateComposeRequest) (*Compose, error) {
+	resp, err := c.makeRequest("POST", "/api/compose.create", req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create compose service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var compose Compose
+	if err := json.NewDecoder(resp.Body).Decode(&compose); err != nil {
+		return nil, fmt.Errorf("failed to decode compose response: %w", err)
+	}
+
+	return &compose, nil
+}
+
+// SaveComposeFile saves the docker-compose.yml content using the update endpoint
+func (c *Client) SaveComposeFile(req SaveComposeFileRequest) error {
+	// Convert to UpdateComposeRequest format
+	updateReq := UpdateComposeRequest{
+		ComposeID:    req.ComposeID,
+		ComposeFile:  req.DockerCompose,
+		SourceType:   "raw", // Use raw source type for direct compose content
+		ComposePath:  "./docker-compose.yml", // Default compose path
+	}
+
+	resp, err := c.makeRequest("POST", "/api/compose.update", updateReq)
+	if err != nil {
+		return fmt.Errorf("failed to save compose file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to save compose file, status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// DeployCompose deploys a Docker Compose service
+func (c *Client) DeployCompose(req DeployComposeRequest) error {
+	resp, err := c.makeRequest("POST", "/api/compose.deploy", req)
+	if err != nil {
+		return fmt.Errorf("failed to deploy compose service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to deploy compose service, status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// GetCompose retrieves a Docker Compose service by ID
+func (c *Client) GetCompose(composeID string) (*Compose, error) {
+	endpoint := fmt.Sprintf("/api/compose.one?composeId=%s", url.QueryEscape(composeID))
+	resp, err := c.makeRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get compose service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response body for debugging
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	
+	c.logger.Debugf("Dokploy API response for compose %s: %s", composeID, string(body))
+
+	// Check for error responses
+	if resp.StatusCode != http.StatusOK {
+		var errorResp struct {
+			Message string `json:"message"`
+			Code    string `json:"code"`
+		}
+		if err := json.Unmarshal(body, &errorResp); err == nil {
+			if errorResp.Code == "NOT_FOUND" {
+				return nil, fmt.Errorf("compose service not found: %s", errorResp.Message)
+			}
+		}
+		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(body))
+	}
+
+	var compose Compose
+	if err := json.Unmarshal(body, &compose); err != nil {
+		return nil, fmt.Errorf("failed to decode compose response: %w", err)
+	}
+
+	return &compose, nil
+}
+
+// DeleteCompose deletes a Docker Compose service
+func (c *Client) DeleteCompose(composeID string) error {
+	req := map[string]string{"composeId": composeID}
+	resp, err := c.makeRequest("DELETE", "/api/compose.remove", req)
+	if err != nil {
+		return fmt.Errorf("failed to delete compose service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to delete compose service, status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// StartCompose starts a Docker Compose service
+func (c *Client) StartCompose(composeID string) error {
+	req := map[string]string{"composeId": composeID}
+	resp, err := c.makeRequest("POST", "/api/compose.start", req)
+	if err != nil {
+		return fmt.Errorf("failed to start compose service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to start compose service, status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// StopCompose stops a Docker Compose service
+func (c *Client) StopCompose(composeID string) error {
+	req := map[string]string{"composeId": composeID}
+	resp, err := c.makeRequest("POST", "/api/compose.stop", req)
+	if err != nil {
+		return fmt.Errorf("failed to stop compose service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to stop compose service, status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// GetComposeStatus returns the DevPod-compatible status of a Docker Compose service
+func (c *Client) GetComposeStatus(composeName string) (client.Status, error) {
+	compose, err := c.GetComposeByName(composeName)
+	if err != nil {
+		return client.StatusNotFound, err
+	}
+
+	c.logger.Debugf("Dokploy compose status for %s: '%s'", composeName, compose.Status)
+
+	switch compose.Status {
+	case "done", "running":
+		return client.StatusRunning, nil
+	case "idle", "stopped":
+		return client.StatusStopped, nil
+	case "error", "failed":
+		return client.StatusNotFound, nil
+	case "building", "deploying", "restarting":
+		return client.StatusBusy, nil
+	default:
+		c.logger.Warnf("Unknown Dokploy status '%s' for compose %s, treating as busy", compose.Status, composeName)
+		return client.StatusBusy, nil
+	}
+}
+
+// GetComposeByName retrieves a Docker Compose service by name
+func (c *Client) GetComposeByName(composeName string) (*Compose, error) {
+	// Get all projects to find the compose service
+	projects, err := c.GetAllProjects()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get projects: %w", err)
+	}
+
+	// Find the compose service with matching name
+	for _, project := range projects {
+		for _, compose := range project.Composes {
+			if compose.Name == composeName {
+				return &compose, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("compose service with name '%s' not found", composeName)
+}
+
+// DeleteComposeByName deletes a Docker Compose service by name
+func (c *Client) DeleteComposeByName(composeName string) error {
+	compose, err := c.GetComposeByName(composeName)
+	if err != nil {
+		return fmt.Errorf("failed to find compose service: %w", err)
+	}
+	
+	return c.DeleteCompose(compose.ComposeID)
+}
+
+// StartComposeByName starts a Docker Compose service by name
+func (c *Client) StartComposeByName(composeName string) error {
+	compose, err := c.GetComposeByName(composeName)
+	if err != nil {
+		return fmt.Errorf("failed to find compose service: %w", err)
+	}
+	
+	return c.StartCompose(compose.ComposeID)
+}
+
+// StopComposeByName stops a Docker Compose service by name
+func (c *Client) StopComposeByName(composeName string) error {
+	compose, err := c.GetComposeByName(composeName)
+	if err != nil {
+		return fmt.Errorf("failed to find compose service: %w", err)
+	}
+	
+	return c.StopCompose(compose.ComposeID)
 }
 
 // makeRequest makes an HTTP request to the Dokploy API with comprehensive debug logging

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/loft-sh/devpod/pkg/ssh"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	cryptossh "golang.org/x/crypto/ssh" // For SSH client configuration in isSSHPortActive
 )
 
 // commandCmd represents the command execution command
@@ -164,8 +166,8 @@ func runCommand() error {
 
 	// Get application details by finding it by name (machineID is the application name)
 	// First get all projects to find the application
-	logger.Debug("=== FINDING APPLICATION ===")
-	logger.Debugf("Searching for application with name: %s", machineID)
+	logger.Debug("=== FINDING DOCKER COMPOSE SERVICE ===")
+	logger.Debugf("Searching for compose service with name: %s", machineID)
 	projects, err := dokployClient.GetAllProjects()
 	if err != nil {
 		logger.Errorf("Failed to get projects: %v", err)
@@ -173,59 +175,73 @@ func runCommand() error {
 	}
 	logger.Debugf("Retrieved %d projects", len(projects))
 
-	// Find the application with matching name
-	var app *dokploy.Application
+	// Find the compose service with matching name
+	var compose *dokploy.Compose
 	for i, project := range projects {
-		logger.Debugf("Checking project %d: %s (ID: %s) with %d applications", i, project.Name, project.ProjectID, len(project.Applications))
-		for j, application := range project.Applications {
-			logger.Debugf("  Application %d: %s (ID: %s)", j, application.Name, application.ApplicationID)
-			if application.Name == machineID {
-				app = &application
-				logger.Debugf("✓ Found matching application: %s", application.Name)
+		logger.Debugf("Checking project %d: %s (ID: %s) with %d compose services", i, project.Name, project.ProjectID, len(project.Composes))
+		for j, composeService := range project.Composes {
+			logger.Debugf("  Compose service %d: %s (ID: %s)", j, composeService.Name, composeService.ComposeID)
+			if composeService.Name == machineID {
+				compose = &composeService
+				logger.Debugf("✓ Found matching compose service: %s", composeService.Name)
 				break
 			}
 		}
-		if app != nil {
+		if compose != nil {
 			break
 		}
 	}
 
-	if app == nil {
-		logger.Errorf("Application with name '%s' not found", machineID)
-		logger.Error("Available applications:")
+	if compose == nil {
+		logger.Errorf("Compose service with name '%s' not found", machineID)
+		logger.Error("Available compose services:")
 		for _, project := range projects {
-			for _, application := range project.Applications {
-				logger.Errorf("  - %s (ID: %s)", application.Name, application.ApplicationID)
+			for _, composeService := range project.Composes {
+				logger.Errorf("  - %s (ID: %s)", composeService.Name, composeService.ComposeID)
 			}
 		}
-		return fmt.Errorf("application with name '%s' not found", machineID)
+		return fmt.Errorf("compose service with name '%s' not found", machineID)
 	}
 
-	logger.Debugf("✓ Found application: %s (ID: %s)", app.Name, app.ApplicationID)
+	logger.Debugf("✓ Found compose service: %s (ID: %s)", compose.Name, compose.ComposeID)
 
-	// Get full application details using the ApplicationID to ensure we have complete port information
-	logger.Debug("=== GETTING APPLICATION DETAILS ===")
-	fullApp, err := dokployClient.GetApplication(app.ApplicationID)
+	// Get full compose service details
+	logger.Debug("=== GETTING COMPOSE SERVICE DETAILS ===")
+	_, err = dokployClient.GetCompose(compose.ComposeID)
 	if err != nil {
-		logger.Warnf("Failed to get full application details, using basic info: %v", err)
-		fullApp = app
+		logger.Warnf("Failed to get full compose service details: %v", err)
 	} else {
-		logger.Debugf("✓ Retrieved full application details with %d ports", len(fullApp.Ports))
+		logger.Debugf("✓ Retrieved full compose service details")
 	}
 
-	// Find SSH port from application ports with retry logic
-	logger.Debug("=== FINDING SSH PORT ===")
+	// For Docker Compose services, we need to find the SSH port from the Docker Compose configuration
+	// Since the port was allocated during creation (in create.go), we need to discover it
+	logger.Debug("=== FINDING SSH PORT FOR COMPOSE SERVICE ===")
 	var sshPort string
 	maxRetries := 10
 	retryDelay := 2 * time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		logger.Debugf("Attempt %d/%d: Looking for SSH port in %d ports", attempt, maxRetries, len(fullApp.Ports))
+		logger.Debugf("Attempt %d/%d: Looking for SSH port for compose service", attempt, maxRetries)
 		
-		for i, port := range fullApp.Ports {
-			logger.Debugf("  Port %d: %d -> %d (%s)", i, port.PublishedPort, port.TargetPort, port.Protocol)
-			if port.TargetPort == 22 {
-				sshPort = fmt.Sprintf("%d", port.PublishedPort)
+		// Extract hostname from ServerURL
+		hostname := opts.DokployServerURL
+		if strings.HasPrefix(hostname, "https://") {
+			hostname = strings.TrimPrefix(hostname, "https://")
+		}
+		if strings.HasPrefix(hostname, "http://") {
+			hostname = strings.TrimPrefix(hostname, "http://")
+		}
+		// Remove port if present
+		if colonIdx := strings.Index(hostname, ":"); colonIdx != -1 {
+			hostname = hostname[:colonIdx]
+		}
+		
+		// Check ports in the range we use for SSH (2222-2250)
+		for port := 2222; port <= 2250; port++ {
+			// Test if this port is accessible and is SSH
+			if isSSHPortActive(hostname, port, logger) {
+				sshPort = fmt.Sprintf("%d", port)
 				logger.Debugf("✓ Found SSH port: %s", sshPort)
 				break
 			}
@@ -238,25 +254,14 @@ func runCommand() error {
 		if attempt < maxRetries {
 			logger.Debugf("SSH port not found, waiting %v before retry %d/%d...", retryDelay, attempt+1, maxRetries)
 			time.Sleep(retryDelay)
-			
-			// Refresh application details
-			freshApp, err := dokployClient.GetApplication(app.ApplicationID)
-			if err != nil {
-				logger.Warnf("Failed to refresh application details: %v", err)
-			} else {
-				fullApp = freshApp
-				logger.Debugf("Refreshed application details, now has %d ports", len(fullApp.Ports))
-			}
 		}
 	}
 
 	if sshPort == "" {
-		logger.Errorf("SSH port not found for application %s", machineID)
-		logger.Error("Available ports:")
-		for i, port := range fullApp.Ports {
-			logger.Errorf("  Port %d: %d -> %d (%s)", i, port.PublishedPort, port.TargetPort, port.Protocol)
-		}
-		return fmt.Errorf("SSH port not found for application %s", machineID)
+		logger.Errorf("SSH port not found for compose service %s", machineID)
+		logger.Error("No accessible SSH port found in range 2222-2250")
+		logger.Error("This may indicate the compose service is still starting up or failed to deploy")
+		return fmt.Errorf("SSH port not found for compose service %s", machineID)
 	}
 
 	// Get machine folder for SSH keys
@@ -289,9 +294,9 @@ func runCommand() error {
 	
 	sshAddress := hostname + ":" + sshPort
 	logger.Debugf("SSH address: %s", sshAddress)
-	logger.Debugf("SSH user: devpod")
+	logger.Debugf("SSH user: root")
 	
-	sshClient, err := ssh.NewSSHClient("devpod", sshAddress, privateKey)
+	sshClient, err := ssh.NewSSHClient("root", sshAddress, privateKey)
 	if err != nil {
 		logger.Errorf("Failed to create SSH client: %v", err)
 		return fmt.Errorf("failed to create SSH client: %w", err)
@@ -313,4 +318,46 @@ func runCommand() error {
 	logger.Debug("✓ SSH command executed successfully")
 	logger.Debug("=== COMMAND EXECUTION DEBUG END ===")
 	return nil
+}
+
+// isSSHPortActive tests if a port is accessible and responds as an SSH service
+func isSSHPortActive(host string, port int, logger *logrus.Logger) bool {
+	testAddress := fmt.Sprintf("%s:%d", host, port)
+	
+	// First check if the port is accessible
+	conn, err := net.DialTimeout("tcp", testAddress, 2*time.Second)
+	if err != nil {
+		logger.Debugf("Port %d not accessible: %v", port, err)
+		return false
+	}
+	conn.Close()
+	
+	// Test SSH service availability (without authentication, just to see if SSH daemon responds)
+	config := &cryptossh.ClientConfig{
+		User: "root",
+		Auth: []cryptossh.AuthMethod{
+			// Use a dummy key method that will fail but allow us to test if SSH daemon is responding
+			cryptossh.PublicKeys(),
+		},
+		HostKeyCallback: cryptossh.InsecureIgnoreHostKey(),
+		Timeout:         2 * time.Second,
+	}
+	
+	// Try to connect - we expect this to fail with auth error, but it should connect to SSH daemon
+	sshClient, err := cryptossh.Dial("tcp", testAddress, config)
+	if err != nil {
+		// Check if it's an authentication error (which is expected and means SSH is ready)
+		if strings.Contains(err.Error(), "unable to authenticate") || strings.Contains(err.Error(), "no supported methods remain") {
+			logger.Debugf("SSH daemon is responding on port %d (authentication error expected)", port)
+			return true
+		} else {
+			logger.Debugf("Port %d not an SSH service: %v", port, err)
+			return false
+		}
+	} else {
+		// Unexpected success - close the connection
+		sshClient.Close()
+		logger.Debugf("SSH connection successful on port %d", port)
+		return true
+	}
 } 
