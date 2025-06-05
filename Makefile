@@ -418,6 +418,12 @@ setup: ## Install required development tools
 		echo "$(YELLOW)Installing yq...$(NC)"; \
 		sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64; \
 		sudo chmod +x /usr/local/bin/yq; \
+		echo "$(YELLOW)Installing gox...$(NC)"; \
+		go install github.com/mitchellh/gox@latest; \
+		echo "$(YELLOW)Installing gomplate...$(NC)"; \
+		curl -o gomplate -sSL https://github.com/hairyhenderson/gomplate/releases/latest/download/gomplate_linux-amd64; \
+		chmod +x gomplate; \
+		sudo mv gomplate /usr/local/bin/; \
 		echo "$(YELLOW)Checking DevPod installation...$(NC)"; \
 		if command -v devpod >/dev/null 2>&1; then \
 			echo "$(GREEN)✓ DevPod already installed$(NC)"; \
@@ -433,6 +439,12 @@ setup: ## Install required development tools
 		echo "$(YELLOW)Installing yq...$(NC)"; \
 		sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64; \
 		sudo chmod +x /usr/local/bin/yq; \
+		echo "$(YELLOW)Installing gox...$(NC)"; \
+		go install github.com/mitchellh/gox@latest; \
+		echo "$(YELLOW)Installing gomplate...$(NC)"; \
+		curl -o gomplate -sSL https://github.com/hairyhenderson/gomplate/releases/latest/download/gomplate_linux-amd64; \
+		chmod +x gomplate; \
+		sudo mv gomplate /usr/local/bin/; \
 		echo "$(YELLOW)Checking DevPod installation...$(NC)"; \
 		if command -v devpod >/dev/null 2>&1; then \
 			echo "$(GREEN)✓ DevPod already installed$(NC)"; \
