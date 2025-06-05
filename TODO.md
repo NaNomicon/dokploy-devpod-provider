@@ -26,6 +26,9 @@
 
 ## Core Features
 
+- [ ] Robust SSH Port checks
+      Published but unsed port can still be wrongly used for new machines
+
 - [ ] Multi-server support for Dokploy
       Add support for DOKPLOY_SERVER_ID to handle multiple Dokploy servers
 
