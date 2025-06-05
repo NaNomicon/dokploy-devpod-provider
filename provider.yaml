@@ -45,24 +45,24 @@ binaries:
   DOKPLOY_PROVIDER_BINARY:
     - os: linux
       arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-linux-amd64
-      checksum: ""
+      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-linux-amd64
+      checksum: "sha256:70e87ac6d3e1b92fef5a69a33392b5b89c73b1465ff88b8046c40eb791651282"
     - os: linux
       arch: arm64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-linux-arm64
-      checksum: ""
+      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-linux-arm64
+      checksum: "sha256:2208b5679dad10aa0c60189bd27fc9630765145952dce3a27ff7451269cca7db"
     - os: darwin
       arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-darwin-amd64
-      checksum: ""
+      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-darwin-amd64
+      checksum: "sha256:fb43ef96d40136ae5ce67c5d5672877609e633bfbcb2584657fc5c45d016e176"
     - os: darwin
       arch: arm64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-darwin-arm64
-      checksum: ""
+      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-darwin-arm64
+      checksum: "sha256:7e8d3003f0f41eb000f64f48e30932c678da904a6aa4421cb38ce785cf064ab1"
     - os: windows
       arch: amd64
-      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest/download/dokploy-provider-windows-amd64.exe
-      checksum: ""
+      path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-windows-amd64.exe
+      checksum: "sha256:c9f5dc41589b58e54fec8a18f0341c479f617ebfb867bf624b37cf54a1fa3056"
 
 exec:
   # Initialize the provider (test API connection)
