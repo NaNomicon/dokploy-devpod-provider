@@ -552,8 +552,11 @@ func (c *Client) GetCompose(composeID string) (*Compose, error) {
 
 // DeleteCompose deletes a Docker Compose service
 func (c *Client) DeleteCompose(composeID string) error {
-	req := map[string]string{"composeId": composeID}
-	resp, err := c.makeRequest("DELETE", "/api/compose.remove", req)
+	req := map[string]interface{}{
+		"composeId":     composeID,
+		"deleteVolumes": true, // Delete associated volumes for complete cleanup
+	}
+	resp, err := c.makeRequest("POST", "/api/compose.delete", req)
 	if err != nil {
 		return fmt.Errorf("failed to delete compose service: %w", err)
 	}

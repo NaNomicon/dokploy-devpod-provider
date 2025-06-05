@@ -697,6 +697,7 @@ For workspace-related issues, include:
 - [Provider Development Guide](https://devpod.sh/docs/developing-providers/quickstart)
 - [DevPod GitHub](https://github.com/loft-sh/devpod)
 - [Community Providers](https://devpod.sh/docs/managing-providers/add-provider#community-providers)
+- Dokploy Swagger at `your-dokploy-url/swagger`
 
 ### Community Provider Examples
 
@@ -704,11 +705,6 @@ For workspace-related issues, include:
 - [Cloudbit Provider](https://github.com/cloudbit-ch/devpod-provider-cloudbit)
 - [Scaleway Provider](https://github.com/dirien/devpod-provider-scaleway)
 - [Flow Provider](https://github.com/flowswiss/devpod-provider-flow)
-
-### Project Resources
-
-- [Tutorial: Complete Guide](tutorial.md)
-- [Development Journey](journey.md)
 
 ## 🤝 Community Guidelines
 
