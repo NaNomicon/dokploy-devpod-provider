@@ -15,7 +15,6 @@ type Options struct {
 	DokployProjectName string `json:"dokployProjectName"`
 	DokployServerID    string `json:"dokployServerID"`
 	MachineType        string `json:"machineType"`
-	AgentPath          string `json:"agentPath"`
 
 	// Machine identification
 	MachineID string `json:"machineID"`
@@ -29,7 +28,6 @@ func LoadFromEnv() (*Options, error) {
 		DokployProjectName: getEnvWithDefault("DOKPLOY_PROJECT_NAME", "devpod-workspaces"),
 		DokployServerID:    os.Getenv("DOKPLOY_SERVER_ID"),
 		MachineType:        getEnvWithDefault("MACHINE_TYPE", "small"),
-		AgentPath:          getEnvWithDefault("AGENT_PATH", "/opt/devpod/agent"),
 		MachineID:          os.Getenv("MACHINE_ID"),
 	}
 

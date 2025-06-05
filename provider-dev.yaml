@@ -40,30 +40,6 @@ options:
   DOKPLOY_PROJECT_NAME:
     description: Dokploy project name for DevPod workspaces
     default: "devpod-workspaces"
-  INACTIVITY_TIMEOUT:
-    description: "If defined, will automatically stop the VM after the inactivity period"
-    default: "10m"
-  INJECT_GIT_CREDENTIALS:
-    description: "If DevPod should inject git credentials into the remote host"
-    default: "true"
-  INJECT_DOCKER_CREDENTIALS:
-    description: "If DevPod should inject docker credentials into the remote host"
-    default: "true"
-  AGENT_PATH:
-    description: The path where to inject the DevPod agent to.
-    default: /opt/devpod/agent
-  AGENT_DATA_PATH:
-    description: The path where to store the agent data.
-    default: /opt/devpod/agent-data
-
-agent:
-  path: ${AGENT_PATH}
-  dataPath: ${AGENT_DATA_PATH}
-  inactivityTimeout: ${INACTIVITY_TIMEOUT}
-  injectGitCredentials: ${INJECT_GIT_CREDENTIALS}
-  injectDockerCredentials: ${INJECT_DOCKER_CREDENTIALS}
-  docker:
-    install: true
 
 exec:
   # Create a new workspace
