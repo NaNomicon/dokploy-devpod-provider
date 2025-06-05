@@ -1,17 +1,17 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"strings"
 	"time"
-	"encoding/base64"
-	"io/ioutil"
 
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/dokploy"
 	"github.com/NaNomicon/dokploy-devpod-provider/pkg/options"
+	"github.com/NaNomicon/dokploy-devpod-provider/pkg/templates"
 	"github.com/loft-sh/devpod/pkg/ssh"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -50,9 +50,9 @@ func runCreate() error {
 	// Debug: Print all environment variables that might contain machine ID
 	logger.Debug("Environment variables:")
 	for _, env := range os.Environ() {
-		if strings.Contains(strings.ToUpper(env), "MACHINE") || 
-		   strings.Contains(strings.ToUpper(env), "DEVPOD") ||
-		   strings.Contains(strings.ToUpper(env), "WORKSPACE") {
+		if strings.Contains(strings.ToUpper(env), "MACHINE") ||
+			strings.Contains(strings.ToUpper(env), "DEVPOD") ||
+			strings.Contains(strings.ToUpper(env), "WORKSPACE") {
 			logger.Debugf("  %s", env)
 		}
 	}
@@ -226,8 +226,8 @@ func runCreate() error {
 	// Set the docker-compose.yml content
 	logger.Info("Uploading Docker Compose configuration...")
 	err = client.SaveComposeFile(dokploy.SaveComposeFileRequest{
-		ComposeID:      compose.ComposeID,
-		DockerCompose:  dockerComposeContent,
+		ComposeID:     compose.ComposeID,
+		DockerCompose: dockerComposeContent,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save Docker Compose file: %w", err)
@@ -343,29 +343,19 @@ func runCreate() error {
 	return nil
 }
 
-// generateDockerCompose generates the docker-compose.yml content from templates
+// generateDockerCompose generates the docker-compose.yml content from embedded templates
 func generateDockerCompose(sshPort int, sshPublicKey string, logger *logrus.Logger) (string, error) {
 	logger.Debugf("=== GENERATING DOCKER COMPOSE ===")
 	logger.Debugf("SSH Port: %d", sshPort)
 	logger.Debugf("SSH Key length: %d", len(sshPublicKey))
 	
-	// Read the docker-compose template
-	dockerComposeTemplate, err := ioutil.ReadFile("templates/docker-compose.yml")
-	if err != nil {
-		return "", fmt.Errorf("failed to read docker-compose template: %w", err)
-	}
-	logger.Debugf("Docker compose template loaded (%d bytes)", len(dockerComposeTemplate))
-
-	// Read and process the setup script using mvdan/sh (using root version for testing)
-	setupScriptTemplate, err := ioutil.ReadFile("templates/setup-root.sh")
-	if err != nil {
-		return "", fmt.Errorf("failed to read setup script template: %w", err)
-	}
-	logger.Debugf("Setup script template loaded (%d bytes)", len(setupScriptTemplate))
+	// Use embedded template constants
+	logger.Debugf("Docker compose template loaded (%d bytes)", len(templates.DockerComposeTemplate))
+	logger.Debugf("Setup script template loaded (%d bytes)", len(templates.SetupScriptTemplate))
 
 	// Encode the setup script as base64 to avoid quoting/escaping issues
-	encodedScript := base64.StdEncoding.EncodeToString(setupScriptTemplate)
-	
+	encodedScript := base64.StdEncoding.EncodeToString([]byte(templates.SetupScriptTemplate))
+
 	// Create a command that decodes and executes the script
 	setupCommand := fmt.Sprintf("echo '%s' | base64 -d | bash", encodedScript)
 	
@@ -378,7 +368,7 @@ func generateDockerCompose(sshPort int, sshPublicKey string, logger *logrus.Logg
 	escapedSSHKey := strings.ReplaceAll(sshPublicKey, `"`, `\"`)
 
 	// Replace template variables using our safe placeholders
-	dockerCompose := string(dockerComposeTemplate)
+	dockerCompose := templates.DockerComposeTemplate
 	logger.Debugf("Before replacement - contains SSH_PORT placeholder: %v", strings.Contains(dockerCompose, "__SSH_PORT_PLACEHOLDER__"))
 	logger.Debugf("Before replacement - contains SSH_KEY placeholder: %v", strings.Contains(dockerCompose, "__SSH_PUBLIC_KEY_PLACEHOLDER__"))
 	logger.Debugf("Before replacement - contains SCRIPT placeholder: %v", strings.Contains(dockerCompose, "__SETUP_SCRIPT_PLACEHOLDER__"))

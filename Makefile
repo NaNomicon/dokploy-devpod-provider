@@ -525,6 +525,7 @@ install-dev: check-devpod build ## Install provider locally for development usin
 		$(DEVPOD_CMD) provider add ./$(PROVIDER_DEV_FILE) --name $(PROVIDER_NAME)-dev \
 			--option DOKPLOY_SERVER_URL="$(DOKPLOY_SERVER_URL)" \
 			--option DOKPLOY_API_TOKEN="$(DOKPLOY_API_TOKEN)" \
+			--option DOKPLOY_PROVIDER_PATH="$(PWD)/$(BUILD_DIR)/$(BINARY_NAME)" \
 			$$([ -n "$(DOKPLOY_PROJECT_NAME)" ] && echo "--option DOKPLOY_PROJECT_NAME=$(DOKPLOY_PROJECT_NAME)") \
 			$$([ -n "$(DOKPLOY_SERVER_ID)" ] && echo "--option DOKPLOY_SERVER_ID=$(DOKPLOY_SERVER_ID)") \
 			$$([ -n "$(MACHINE_TYPE)" ] && echo "--option MACHINE_TYPE=$(MACHINE_TYPE)") \

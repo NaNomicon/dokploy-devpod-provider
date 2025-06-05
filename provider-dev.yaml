@@ -40,34 +40,42 @@ options:
   DOKPLOY_PROJECT_NAME:
     description: Dokploy project name for DevPod workspaces
     default: "devpod-workspaces"
+  DOKPLOY_PROVIDER_PATH:
+    description: The path to the Dokploy provider binary (auto-detected by Makefile)
+    required: true
 
 exec:
+  # Initialize and validate the provider
+  init: |-
+    export DOKPLOY_PROVIDER_DEV=true
+    ${DOKPLOY_PROVIDER_PATH} init
+  
   # Create a new workspace
   create: |-
     export DOKPLOY_PROVIDER_DEV=true
-    ./dist/dokploy-provider create
+    ${DOKPLOY_PROVIDER_PATH} create
 
   # Delete a workspace
   delete: |-
     export DOKPLOY_PROVIDER_DEV=true
-    ./dist/dokploy-provider delete
+    ${DOKPLOY_PROVIDER_PATH} delete
 
   # Start a workspace
   start: |-
     export DOKPLOY_PROVIDER_DEV=true
-    ./dist/dokploy-provider start
+    ${DOKPLOY_PROVIDER_PATH} start
 
   # Stop a workspace
   stop: |-
     export DOKPLOY_PROVIDER_DEV=true
-    ./dist/dokploy-provider stop
+    ${DOKPLOY_PROVIDER_PATH} stop
 
   # Get workspace status
   status: |-
     export DOKPLOY_PROVIDER_DEV=true
-    ./dist/dokploy-provider status
+    ${DOKPLOY_PROVIDER_PATH} status
 
   # Execute commands via SSH
   command: |-
     export DOKPLOY_PROVIDER_DEV=true
-    ./dist/dokploy-provider command
+    ${DOKPLOY_PROVIDER_PATH} command
