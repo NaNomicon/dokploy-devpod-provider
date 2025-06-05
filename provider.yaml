@@ -1,29 +1,45 @@
 name: dokploy
-version: v0.2.0
-description: "Dokploy provider for DevPod - Create and manage development machines via Dokploy"
-icon: https://raw.githubusercontent.com/Dokploy/dokploy/refs/heads/canary/apps/dokploy/logo.png
+version: v0.1.0
+description: |-
+  DevPod on Dokploy (Development Version)
 
+  This provider allows you to create and manage development workspaces on Dokploy.
+
+  Features:
+  - Automatic SSH setup with key-based authentication
+  - Docker-in-Docker support for development containers
+  - Port mapping for SSH access
+  - Secure workspace isolation
+
+  Requirements:
+  - Dokploy server with API access
+  - Valid API token with application management permissions
+
+icon: https://raw.githubusercontent.com/Dokploy/dokploy/refs/heads/canary/apps/dokploy/logo.png
+optionGroups:
+  - options:
+      - DOKPLOY_SERVER_URL
+      - DOKPLOY_API_TOKEN
+    name: "Dokploy Configuration"
+    defaultVisible: true
+  - options:
+      - DOKPLOY_PROJECT_NAME
+    name: "Advanced Configuration"
+    defaultVisible: false
 options:
   DOKPLOY_SERVER_URL:
-    description: "URL of your Dokploy server (e.g., https://your-dokploy.com)"
+    description: The URL of your Dokploy server (e.g., https://dokploy.example.com)
     required: true
+    suggestions:
+      - https://dokploy.example.com
+      - https://your-dokploy-server.com
   DOKPLOY_API_TOKEN:
-    description: "API token for Dokploy authentication (generate from Settings > Profile > API/CLI)"
+    description: Your Dokploy API token (generate from Settings > API)
     required: true
     password: true
   DOKPLOY_PROJECT_NAME:
-    description: "Dokploy project name for organizing workspaces"
+    description: Dokploy project name for DevPod workspaces
     default: "devpod-workspaces"
-  DOKPLOY_SERVER_ID:
-    description: "Dokploy server ID for multi-server deployments (optional)"
-    required: false
-  MACHINE_TYPE:
-    description: "Machine type/size for the workspace"
-    default: "small"
-    enum:
-      - "small"
-      - "medium"
-      - "large"
   INACTIVITY_TIMEOUT:
     description: "If defined, will automatically stop the VM after the inactivity period"
     default: "10m"
@@ -35,10 +51,10 @@ options:
     default: "true"
   AGENT_PATH:
     description: The path where to inject the DevPod agent to.
-    default: /home/devpod/.devpod/devpod
+    default: /opt/devpod/agent
   AGENT_DATA_PATH:
     description: The path where to store the agent data.
-    default: /home/devpod/.devpod/agent
+    default: /opt/devpod/agent-data
 
 agent:
   path: ${AGENT_PATH}
@@ -46,6 +62,8 @@ agent:
   inactivityTimeout: ${INACTIVITY_TIMEOUT}
   injectGitCredentials: ${INJECT_GIT_CREDENTIALS}
   injectDockerCredentials: ${INJECT_DOCKER_CREDENTIALS}
+  docker:
+    install: true
 
 binaries:
   DOKPLOY_PROVIDER_BINARY:

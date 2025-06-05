@@ -15,7 +15,7 @@ description: |-
   - Dokploy server with API access
   - Valid API token with application management permissions
 
-icon: https://raw.githubusercontent.com/NaNomicon/dokploy-devpod-provider/main/dokploy.svg
+icon: https://raw.githubusercontent.com/Dokploy/dokploy/refs/heads/canary/apps/dokploy/logo.png
 optionGroups:
   - options:
       - DOKPLOY_SERVER_URL
