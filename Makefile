@@ -309,10 +309,11 @@ release-prepare: validate version-check build-all checksums update-provider-chec
 	@ls -la $(BUILD_DIR)/
 	@echo ""
 	@echo "$(BLUE)Next steps:$(NC)"
-	@echo "  1. Review the updated provider.yaml"
+	@echo "  1. Review the updated provider.yaml (URLs and checksums updated)"
 	@echo "  2. Test the provider: make test-docker"
 	@echo "  3. Create release: make tag-release"
 	@echo "  4. Upload binaries to GitHub releases"
+	@echo "  5. Update CHANGELOG.md"
 
 .PHONY: release-clean
 release-clean: ## Clean release artifacts but keep backups
@@ -872,32 +873,37 @@ version-check: ## Check if version is properly set
 		exit 1; \
 	fi
 
-.PHONY: version-bump-patch
-version-bump-patch: ## Bump patch version (x.y.Z)
-	@echo "$(BLUE)Bumping patch version...$(NC)"
+# Helper function to update version and URLs
+define update-version-and-urls
 	@current_version=$(VERSION); \
-	new_version=$$(echo $$current_version | awk -F. '{$$3++; print $$1"."$$2"."$$3}'); \
-	sed -i.bak "s/version: $$current_version/version: $$new_version/" $(PROVIDER_FILE); \
-	rm -f $(PROVIDER_FILE).bak; \
-	echo "$(GREEN)Version bumped from $$current_version to $$new_version$(NC)"
+	new_version=$(1); \
+	echo "$(YELLOW)Updating version from $$current_version to $$new_version$(NC)"; \
+	if [[ "$$OSTYPE" == "darwin"* ]]; then \
+		sed -i.bak "s/version: v*$$current_version/version: v$$new_version/" $(PROVIDER_FILE); \
+		sed -i.bak2 "s|releases/download/[^/]*/|releases/download/v$$new_version/|g" $(PROVIDER_FILE); \
+	else \
+		sed -i.bak "s/version: v*$$current_version/version: v$$new_version/" $(PROVIDER_FILE); \
+		sed -i.bak2 "s|releases/download/[^/]*/|releases/download/v$$new_version/|g" $(PROVIDER_FILE); \
+	fi; \
+	rm -f $(PROVIDER_FILE).bak $(PROVIDER_FILE).bak2; \
+	echo "$(GREEN)✓ Version bumped from $$current_version to $$new_version$(NC)"; \
+	echo "$(GREEN)✓ URLs updated to use v$$new_version$(NC)"
+endef
+
+.PHONY: version-bump-patch
+version-bump-patch: ## Bump patch version (x.y.Z) and update URLs
+	@echo "$(BLUE)Bumping patch version...$(NC)"
+	$(call update-version-and-urls,$$(echo $(VERSION) | awk -F. '{$$3++; print $$1"."$$2"."$$3}'))
 
 .PHONY: version-bump-minor
-version-bump-minor: ## Bump minor version (x.Y.z)
+version-bump-minor: ## Bump minor version (x.Y.z) and update URLs
 	@echo "$(BLUE)Bumping minor version...$(NC)"
-	@current_version=$(VERSION); \
-	new_version=$$(echo $$current_version | awk -F. '{$$2++; $$3=0; print $$1"."$$2"."$$3}'); \
-	sed -i.bak "s/version: $$current_version/version: $$new_version/" $(PROVIDER_FILE); \
-	rm -f $(PROVIDER_FILE).bak; \
-	echo "$(GREEN)Version bumped from $$current_version to $$new_version$(NC)"
+	$(call update-version-and-urls,$$(echo $(VERSION) | awk -F. '{$$2++; $$3=0; print $$1"."$$2"."$$3}'))
 
 .PHONY: version-bump-major
-version-bump-major: ## Bump major version (X.y.z)
+version-bump-major: ## Bump major version (X.y.z) and update URLs
 	@echo "$(BLUE)Bumping major version...$(NC)"
-	@current_version=$(VERSION); \
-	new_version=$$(echo $$current_version | awk -F. '{$$1++; $$2=0; $$3=0; print $$1"."$$2"."$$3}'); \
-	sed -i.bak "s/version: $$current_version/version: $$new_version/" $(PROVIDER_FILE); \
-	rm -f $(PROVIDER_FILE).bak; \
-	echo "$(GREEN)Version bumped from $$current_version to $$new_version$(NC)"
+	$(call update-version-and-urls,$$(echo $(VERSION) | awk -F. '{$$1++; $$2=0; $$3=0; print $$1"."$$2"."$$3}'))
 
 .PHONY: tag-release
 tag-release: validate version-check ## Create and push git tag for release
@@ -998,7 +1004,7 @@ help: ## Display this help
 	@echo "  make checksums            # Generate SHA256 checksums"
 	@echo "  make show-checksums       # Display generated checksums"
 	@echo "  make verify-checksums     # Verify checksums against binaries"
-	@echo "  make release-prepare      # Complete release preparation"
+	@echo "  make release-prepare      # Complete release preparation (URLs + checksums)"
 	@echo "  make version-bump-patch   # Bump patch version (0.1.0 -> 0.1.1)"
 	@echo "  make restore-provider     # Restore provider.yaml from backup"
 	@echo ""

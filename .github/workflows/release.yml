@@ -15,14 +15,61 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          # Build for all platforms
+          GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o dist/dokploy-provider-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o dist/dokploy-provider-linux-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist/dokploy-provider-darwin-amd64 .
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist/dokploy-provider-darwin-arm64 .
+          GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o dist/dokploy-provider-windows-amd64.exe .
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          for file in dokploy-provider-*; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" > "$file.sha256"
+            fi
+          done
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             provider.yaml
+            dist/dokploy-provider-linux-amd64
+            dist/dokploy-provider-linux-arm64
+            dist/dokploy-provider-darwin-amd64
+            dist/dokploy-provider-darwin-arm64
+            dist/dokploy-provider-windows-amd64.exe
+            dist/*.sha256
           generate_release_notes: true
-          draft: true
-          prerelease: true
+          draft: false
+          prerelease: false
+          body: |
+            ## Installation
+
+            ```bash
+            devpod provider add ${{ github.repository }}
+            ```
+
+            ## Verification
+
+            Verify the integrity of downloaded binaries using SHA256 checksums:
+
+            ```bash
+            # Example for linux-amd64
+            sha256sum -c dokploy-provider-linux-amd64.sha256
+            ```
+
+            All Git tags and commits are signed and verified by GitHub.
 
       - name: Update latest release
         run: |

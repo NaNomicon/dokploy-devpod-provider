@@ -1,5 +1,28 @@
 # Dokploy DevPod Provider - Changelog
 
+## v0.1.1 - Bug Fixes and Improvements
+
+### 🐛 Bug Fixes
+
+- **Binary Path Resolution**: Fixed provider not working when DevPod is run outside of development directory
+- **Checksum Validation**: Improved checksums generation and validation process
+
+### ✨ Features & Enhancements
+
+- **Documentation**: Enhanced README with Ubuntu DIND details and SSH port checking TODO
+- **Development Workflow**: Improved Makefile with better build and validation targets
+- **Security Documentation**: Updated security guidelines and best practices
+- **Monitoring**: Added GitHub workflows to monitor new versions from DevPod and Dokploy
+
+### 🔧 Technical Changes
+
+- Better binary path handling for cross-environment compatibility
+- Enhanced checksum generation process
+- Improved documentation structure
+- Added automated version monitoring workflows
+
+---
+
 ## v0.1.0 - First Release
 
 A functional DevPod provider for Dokploy that creates development workspaces using Docker Compose services.

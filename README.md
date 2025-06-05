@@ -22,7 +22,7 @@
 
 ## 🎉 Current Status
 
-**Ready for v0.1.0 release** - Core functionality is stable and well-tested. Suitable for development environments.
+Core functionality is working and tested.
 
 ## ✨ What This Does
 
