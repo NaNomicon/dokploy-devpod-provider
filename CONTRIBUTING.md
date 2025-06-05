@@ -4,34 +4,53 @@ Thank you for your interest in contributing to the Dokploy DevPod Provider! This
 
 ## 🎯 Project Overview
 
-This project provides a DevPod provider that integrates with Dokploy's deployment platform. The provider enables developers to create and manage development workspaces using Dokploy's infrastructure.
+This project provides a DevPod provider that integrates with Dokploy's deployment platform using **Docker Compose services**. The provider enables developers to create and manage development workspaces using Dokploy's infrastructure with a high-performance Go binary helper.
 
 ### Key Components
 
 - **`provider.yaml`**: Main provider configuration file (Machine Provider pattern)
-- **`Makefile`**: Comprehensive development tooling and automation
-- **API Integration**: Handles communication with Dokploy's REST API
-- **Lifecycle Management**: Manages workspace creation, deployment, and cleanup
-- **Workspace Management**: Robust handling of active workspaces and cleanup
+- **`dokploy-provider` binary**: Go CLI binary for all operations
+- **Docker Compose Integration**: Creates and manages Docker Compose services in Dokploy
+- **SSH Infrastructure**: Root-based SSH access for maximum DevPod compatibility
+- **Makefile**: Comprehensive development tooling and automation
 - **Cross-Platform Support**: Works on macOS, Linux, and Windows
 
-### Architecture: Machine Provider Design
+### Architecture: Docker Compose Services
 
-This provider implements DevPod's **Machine Provider** pattern with a two-layer architecture:
+This provider implements DevPod's **Machine Provider** pattern using Dokploy's **Docker Compose services**:
 
-#### Layer 1: Machine Infrastructure (Provider Managed)
+#### Layer 1: Docker Compose Infrastructure (Provider Managed)
 
-- **Purpose**: Provides the base environment where DevPod agent runs
-- **Image**: Configured via `MACHINE_IMAGE` option (e.g., `ubuntu:22.04`)
-- **Responsibility**: Basic OS, SSH server, Docker runtime
-- **Managed By**: Dokploy provider
+- **Purpose**: Provides the base Docker Compose container where DevPod agent runs
+- **Base Image**: `cruizba/ubuntu-dind:latest` (Docker-in-Docker with Ubuntu)
+- **SSH Setup**: Root-based SSH access with key injection
+- **Responsibility**: Docker daemon, SSH server, basic OS tools
+- **Managed By**: Dokploy provider via Docker Compose API
 
 #### Layer 2: Development Environment (DevPod Managed)
 
 - **Purpose**: Actual development container with tools and dependencies
 - **Image**: Defined in `.devcontainer/devcontainer.json` or workspace configuration
 - **Responsibility**: Development tools, language runtimes, project dependencies
-- **Managed By**: DevPod agent
+- **Managed By**: DevPod agent inside the Docker Compose container
+
+#### Binary Helper Architecture
+
+The provider uses a **Go CLI binary** instead of shell scripts:
+
+```
+DevPod → Binary Helper → Dokploy API → Docker Compose Service → SSH Access
+```
+
+**Commands**:
+
+- `dokploy-provider init` - Validate configuration and connectivity
+- `dokploy-provider create` - Create Docker Compose service with SSH setup
+- `dokploy-provider delete` - Remove Docker Compose service
+- `dokploy-provider start` - Start Docker Compose service
+- `dokploy-provider stop` - Stop Docker Compose service
+- `dokploy-provider status` - Get service status
+- `dokploy-provider command` - Execute commands via SSH
 
 ## 🚀 Getting Started
 
@@ -41,13 +60,14 @@ This provider implements DevPod's **Machine Provider** pattern with a two-layer 
 
 - [DevPod](https://devpod.sh/) installed locally (CLI or Desktop App)
 - Access to a Dokploy instance for testing
-- Basic knowledge of YAML, shell scripting, and REST APIs
+- Go 1.22+ for binary development
+- Docker for testing
+- Basic knowledge of Go, Docker Compose, and REST APIs
 
 #### Development Tools (Auto-installed by Makefile)
 
 - `yq` - YAML processing
 - `jq` - JSON processing
-- `shellcheck` - Shell script linting
 - `curl` - HTTP requests
 - `docker` - Container management
 
@@ -61,17 +81,20 @@ cd dokploy-devpod-provider
 # 2. Install required development tools
 make setup
 
-# 3. Set up environment configuration
+# 3. Build the binary helper
+make build
+
+# 4. Set up environment configuration
 make setup-env
 # Edit .env file with your Dokploy configuration
 
-# 4. Install provider locally for development
-make install-local
+# 5. Install provider locally for development
+make install-dev
 
-# 5. Configure provider from .env file
+# 6. Configure provider from .env file
 make configure-env
 
-# 6. Test the provider
+# 7. Test the provider
 make test-docker
 ```
 
@@ -87,9 +110,11 @@ DOKPLOY_API_TOKEN=your_test_token
 # Optional Configuration
 DOKPLOY_PROJECT_NAME=devpod-development
 DOKPLOY_SERVER_ID=
-MACHINE_TYPE=small
-MACHINE_IMAGE=ubuntu:22.04
 AGENT_PATH=/opt/devpod/agent
+AGENT_DATA_PATH=/opt/devpod/agent-data
+INACTIVITY_TIMEOUT=10m
+INJECT_GIT_CREDENTIALS=true
+INJECT_DOCKER_CREDENTIALS=true
 ```
 
 **Important**: Never commit your `.env` file to version control. It's automatically gitignored.
@@ -98,91 +123,111 @@ AGENT_PATH=/opt/devpod/agent
 
 ### Understanding the Provider Structure
 
-The `provider.yaml` file follows the DevPod Machine Provider format:
+The `provider.yaml` file follows the DevPod Machine Provider format with Docker Compose support:
 
 ```yaml
 name: dokploy # Provider name
 version: v0.1.0 # Version
-description: "Dokploy provider for DevPod - Create and manage development machines via Dokploy"
+description: "DevPod on Dokploy - Docker Compose services"
 icon: "https://raw.githubusercontent.com/Dokploy/dokploy/refs/heads/canary/apps/dokploy/logo.png"
 
 options: # Configuration options
   DOKPLOY_SERVER_URL: # Required
   DOKPLOY_API_TOKEN: # Required, password field
   DOKPLOY_PROJECT_NAME: # Optional
-  DOKPLOY_SERVER_ID: # Optional
-  MACHINE_TYPE: # Optional, enum: small/medium/large
-  MACHINE_IMAGE: # Optional, default: ubuntu:22.04
-  AGENT_PATH: # Optional
+  AGENT_PATH: # Optional, default: /opt/devpod/agent
+  AGENT_DATA_PATH: # Optional
+  INACTIVITY_TIMEOUT: # Optional
+  INJECT_GIT_CREDENTIALS: # Optional
+  INJECT_DOCKER_CREDENTIALS: # Optional
 
 agent: # DevPod agent configuration
   path: ${AGENT_PATH}
-  driver: docker
-  inactivityTimeout: 10m
+  dataPath: ${AGENT_DATA_PATH}
+  inactivityTimeout: ${INACTIVITY_TIMEOUT}
+  injectGitCredentials: ${INJECT_GIT_CREDENTIALS}
+  injectDockerCredentials: ${INJECT_DOCKER_CREDENTIALS}
+  docker:
+    install: true
 
-exec: # Provider commands
-  init: |- # Initialize provider (validate connection)
-    # Validate Dokploy API connection and authentication
+binaries: # Binary helper distribution
+  DOKPLOY_PROVIDER_BINARY:
+    - os: linux
+      arch: amd64
+      path: https://github.com/.../dokploy-provider-linux-amd64
 
-  create: |- # Create machine
-    # Create Dokploy application with machine image
-    # Set up SSH access and return connection details
-
-  start: |- # Start machine
-    # Deploy/start the application
-
-  stop: |- # Stop machine
-    # Stop the application
-
-  delete: |- # Delete machine
-    # Clean up resources
-
-  status: |- # Get machine status
-    # Return machine status (Running/Stopped/Busy/NotFound)
-
-  command: |- # Execute commands via SSH
-    # Execute commands in the machine via SSH
+exec: # Provider commands (using binary helper)
+  init: ${DOKPLOY_PROVIDER_BINARY} init
+  create: ${DOKPLOY_PROVIDER_BINARY} create
+  start: ${DOKPLOY_PROVIDER_BINARY} start
+  stop: ${DOKPLOY_PROVIDER_BINARY} stop
+  delete: ${DOKPLOY_PROVIDER_BINARY} delete
+  status: ${DOKPLOY_PROVIDER_BINARY} status
+  command: ${DOKPLOY_PROVIDER_BINARY} command
 ```
 
-### Image Management in Development
+### Docker Compose Service Management
 
-When developing and testing the provider, understand the two-layer architecture:
+The provider creates Docker Compose services in Dokploy with the following characteristics:
 
-#### Machine Image (Provider Layer)
+#### Container Configuration
 
-- **Purpose**: Base infrastructure where DevPod agent runs
-- **Configuration**: `MACHINE_IMAGE` option (default: `ubuntu:22.04`)
-- **Best Practices**: Use lightweight, well-supported images
-- **Testing**: Test with different machine images to ensure compatibility
+- **Base Image**: `cruizba/ubuntu-dind:latest`
+- **Privileged Mode**: Enabled for Docker-in-Docker
+- **Port Mapping**: SSH port from range 2222-2250
+- **SSH Access**: Root user with SSH key injection
+- **Docker Daemon**: Full Docker-in-Docker capabilities
 
-#### Development Image (DevPod Layer)
+#### Setup Process (4 Stages)
 
-- **Purpose**: Actual development environment with tools
-- **Configuration**: `.devcontainer/devcontainer.json` in test projects
-- **Best Practices**: Use official DevContainer images when possible
-- **Testing**: Test with various development scenarios
+1. **Docker Daemon Startup** (30-60s): Start Docker-in-Docker
+2. **SSH Installation** (30-60s): Install SSH server and tools
+3. **SSH Key Setup** (10-20s): Inject SSH keys for root user
+4. **SSH Configuration** (10-20s): Configure SSH daemon for root access
 
-#### Testing Different Image Combinations
+### Binary Helper Development
 
-```bash
-# Test with default machine image
-make test-docker
+The provider is implemented as a Go CLI application:
 
-# Test with different configurations
-devpod provider set-options dokploy-dev --option MACHINE_TYPE=medium
-
-# Test with Ubuntu DinD (default - recommended for DevPod compatibility)
-devpod provider set-options dokploy-dev --option DOKPLOY_PROJECT_NAME=test-project
+```
+├── cmd/                    # CLI commands
+│   ├── root.go            # Root command and configuration
+│   ├── init.go            # Initialize and validate provider
+│   ├── create.go          # Create Docker Compose service
+│   ├── delete.go          # Delete Docker Compose service
+│   ├── start.go           # Start Docker Compose service
+│   ├── stop.go            # Stop Docker Compose service
+│   ├── status.go          # Get Docker Compose service status
+│   └── command.go         # Execute commands via SSH
+├── pkg/                   # Core packages
+│   ├── options/           # Configuration management
+│   ├── dokploy/           # Dokploy API client (Docker Compose support)
+│   ├── client/            # DevPod status types
+│   └── ssh/               # SSH client for command execution
+├── templates/             # Docker Compose and setup templates
+│   ├── docker-compose.yml # Docker Compose template
+│   └── setup-root.sh     # Container setup script
+├── dist/                  # Built binaries
+└── provider.yaml          # DevPod provider configuration
 ```
 
 ### Makefile-Based Development
 
 The project includes a comprehensive Makefile with 30+ commands for development:
 
+#### Binary Management
+
+```bash
+make build             # Build binary for current platform
+make build-all         # Build for all platforms
+make test-build        # Test binary functionality
+make install-dev       # Install development provider with local binary
+```
+
 #### Installation Management
 
 ```bash
-make install-local     # Install provider locally for development
+make install-dev       # Install development provider (uses local binary)
 make install-github    # Install from GitHub repository
 make reinstall         # Reinstall (checks for active workspaces)
 make force-reinstall   # Force reinstall (handles active workspaces)
@@ -196,7 +241,6 @@ make force-uninstall   # Force remove provider and all workspaces
 make setup-env         # Create .env from template
 make configure-env     # Configure from .env file
 make configure         # Interactive configuration
-make configure-optional # Configure optional settings
 make show-config       # Display current configuration
 make clean-env         # Remove .env file
 ```
@@ -206,8 +250,9 @@ make clean-env         # Remove .env file
 ```bash
 make test-docker       # Test with Docker workspace
 make test-git          # Test with Git repository
-make test-lifecycle    # Complete lifecycle testing
+make test-compose      # Test Docker Compose functionality
 make test-ssh          # SSH connection testing
+make test-lifecycle    # Complete lifecycle testing
 make cleanup-test      # Clean up test workspaces
 ```
 
@@ -215,7 +260,7 @@ make cleanup-test      # Clean up test workspaces
 
 ```bash
 make validate          # YAML syntax and structure validation
-make lint             # Shell script linting with shellcheck
+make lint             # Go code linting
 make check-tools      # Verify required tools are installed
 make check-devpod     # Check DevPod CLI availability
 ```
@@ -226,72 +271,65 @@ make check-devpod     # Check DevPod CLI availability
 make list-workspaces   # List all workspaces
 make cleanup-workspaces # Clean up all provider workspaces
 make list-providers    # List all DevPod providers
+make fix-stuck-workspace # Handle stuck workspaces
 ```
 
 #### Tool Management
 
 ```bash
-make setup            # Auto-install required tools (yq, jq, shellcheck)
+make setup            # Auto-install required tools
 make check-tools      # Check which tools are installed
 make install-devpod-cli # Install DevPod CLI separately
 ```
 
-#### Release Management
+### API Integration
 
-```bash
-make version-check     # Check current version
-make version-bump-patch # Bump patch version
-make version-bump-minor # Bump minor version
-make version-bump-major # Bump major version
-make tag-release      # Create and push git tag
-make release          # Full release process
-```
+The provider uses `x-api-key` header authentication for all Dokploy API endpoints:
 
-#### Utilities
+```go
+// Example API call
+req.Header.Set("x-api-key", c.apiToken)
+req.Header.Set("Content-Type", "application/json")
 
-```bash
-make debug-env        # Show debug information
-make logs            # Show provider logs
-make docs            # Generate documentation
-make help            # Show all available commands
-```
-
-### API Authentication
-
-The provider uses Bearer token authentication for all Dokploy API endpoints:
-
-```bash
-# All endpoints use the same authentication pattern
-curl -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" \
-  "${DOKPLOY_SERVER_URL}/api/endpoint"
+// Docker Compose API endpoints
+POST /api/compose.create     # Create Docker Compose service
+POST /api/compose.update     # Update Docker Compose configuration
+POST /api/compose.deploy     # Deploy Docker Compose service
+POST /api/compose.start      # Start Docker Compose service
+POST /api/compose.stop       # Stop Docker Compose service
+POST /api/compose.delete     # Delete Docker Compose service
+GET  /api/compose.one        # Get Docker Compose service details
 ```
 
 ### Error Handling Best Practices
 
-1. **Validate inputs early**
+1. **Validate inputs early in Go functions**
 2. **Provide clear error messages with actionable advice**
-3. **Clean up resources on failure**
-4. **Exit with appropriate codes**
+3. **Clean up Docker Compose resources on failure**
+4. **Use structured logging with logrus**
 
 Example:
 
-```bash
-if [ -z "${DOKPLOY_SERVER_URL}" ] || [ -z "${DOKPLOY_API_TOKEN}" ]; then
-  echo "Error: DOKPLOY_SERVER_URL and DOKPLOY_API_TOKEN are required"
-  exit 1
-fi
+```go
+func (c *Client) CreateCompose(req CreateComposeRequest) (*Compose, error) {
+    if req.Name == "" {
+        return nil, fmt.Errorf("compose service name is required")
+    }
 
-# Test connection to Dokploy API
-echo "Testing Dokploy API connection..."
-if ! curl -s -f "${DOKPLOY_SERVER_URL}/api/settings.health" \
-  -H "Authorization: Bearer ${DOKPLOY_API_TOKEN}" >/dev/null 2>&1; then
-  echo "Error: Cannot connect to Dokploy server or invalid API token"
-  echo "Please check:"
-  echo "1. Server URL: ${DOKPLOY_SERVER_URL}"
-  echo "2. API token is valid and generated from Settings > Profile > API/CLI"
-  exit 1
-fi
-echo "✓ Dokploy API connection successful"
+    if req.ProjectID == "" {
+        return nil, fmt.Errorf("project ID is required")
+    }
+
+    c.logger.Infof("Creating Docker Compose service: %s", req.Name)
+
+    resp, err := c.makeRequest("POST", "/api/compose.create", req)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create compose service: %w", err)
+    }
+    defer resp.Body.Close()
+
+    // Handle response...
+}
 ```
 
 ## 🧪 Testing
@@ -301,17 +339,22 @@ echo "✓ Dokploy API connection successful"
 The Makefile provides comprehensive testing capabilities:
 
 ```bash
+# Build and test binary
+make build
+make test-build
+
 # Run all tests
 make test-lifecycle
 
 # Test specific scenarios
 make test-docker      # Test with Docker image workspace
 make test-git         # Test with Git repository workspace
+make test-compose     # Test Docker Compose functionality
 make test-ssh         # Test SSH connection
 
 # Validate configuration
 make validate         # YAML syntax and structure
-make lint            # Shell script linting
+make lint            # Go code linting
 ```
 
 ### Manual Testing
@@ -319,7 +362,8 @@ make lint            # Shell script linting
 #### 1. Test Provider Installation
 
 ```bash
-make install-local
+make build
+make install-dev
 make show-config
 ```
 
@@ -358,10 +402,10 @@ devpod delete test-ws --force
 devpod up https://github.com/microsoft/vscode-remote-try-node.git --provider dokploy-dev
 ```
 
-#### 2. Named Workspace
+#### 2. Docker Image Workspace
 
 ```bash
-devpod up my-test-workspace --provider dokploy-dev
+devpod up ubuntu:22.04 --provider dokploy-dev
 ```
 
 #### 3. Error Scenarios
@@ -372,23 +416,21 @@ Test with:
 - Unreachable Dokploy server
 - Invalid workspace names
 - Network timeouts
+- Docker Compose deployment failures
 
-### Workspace Management Testing
+### Docker Compose Testing
 
-#### Active Workspace Scenarios
+#### Test Docker Compose Service Creation
 
 ```bash
-# Create a workspace
-devpod up test-workspace --provider dokploy-dev
+# Test with verbose logging
+DOKPLOY_PROVIDER_DEV=true ./dist/dokploy-provider create --verbose
 
-# Try to reinstall (should detect active workspace)
-make reinstall
+# Test service status
+DOKPLOY_PROVIDER_DEV=true ./dist/dokploy-provider status --verbose
 
-# Force reinstall (should handle active workspace)
-make force-reinstall
-
-# Clean up specific workspaces
-make cleanup-workspaces
+# Test SSH connectivity
+DOKPLOY_PROVIDER_DEV=true ./dist/dokploy-provider command --verbose
 ```
 
 ### Debugging
@@ -399,386 +441,112 @@ make cleanup-workspaces
 devpod up test-workspace --provider dokploy-dev --debug
 ```
 
-#### Check Logs
+#### Binary Debug Mode
 
 ```bash
-# Provider logs
-make logs
+# Enable development mode
+export DOKPLOY_PROVIDER_DEV=true
 
-# Workspace logs
-devpod logs test-workspace --follow
-
-# Debug environment
-make debug-env
+# Run commands with verbose logging
+./dist/dokploy-provider create --verbose
+./dist/dokploy-provider status --verbose
 ```
 
-#### Development Debugging
+#### Debug Log Locations
 
-```bash
-# Show current configuration
-make show-config
+- **Status Command**: `/tmp/dokploy-provider-status.log` (development mode)
+- **Other Commands**: stderr output
+- **API Debugging**: All requests/responses logged with security redaction
 
-# Validate provider
-make validate
-
-# Check tool availability
-make check-tools
-```
-
-## 📝 Code Style and Standards
-
-### Shell Script Guidelines
-
-1. **Use strict error handling**
-
-   ```bash
-   set -e  # Exit on error (already included in provider scripts)
-   ```
-
-2. **Quote variables**
-
-   ```bash
-   echo "Server URL: ${DOKPLOY_SERVER_URL}"
-   ```
-
-3. **Check for required tools**
-
-   ```bash
-   if ! command -v curl >/dev/null 2>&1; then
-     echo "Error: curl is required"
-     exit 1
-   fi
-   ```
-
-4. **Use meaningful variable names**
-
-   ```bash
-   APP_ID=$(echo "$RESPONSE" | jq -r '.applicationId // .id // empty')
-   ```
-
-5. **Provide helpful error messages**
-   ```bash
-   if [ -z "$APP_ID" ]; then
-     echo "Error: Could not get application ID from response"
-     echo "Response: $RESPONSE"
-     exit 1
-   fi
-   ```
-
-### YAML Guidelines
-
-1. **Consistent indentation** (2 spaces)
-2. **Clear descriptions** for all options
-3. **Proper escaping** for shell scripts
-4. **Logical organization** of sections
-5. **Use password field** for sensitive options
-
-### Makefile Guidelines
-
-1. **Use colored output** for better UX
-2. **Provide help text** for all targets
-3. **Handle errors gracefully**
-4. **Support cross-platform** operations
-5. **Use .PHONY** for non-file targets
-
-### Documentation
-
-1. **Comment complex logic**
-2. **Update README** for new features
-3. **Include examples** for new options
-4. **Document breaking changes**
-5. **Update tutorial and journey** for significant changes
-
-## 🔄 Contribution Process
-
-### 1. Issue Discussion
-
-Before starting work:
-
-- Check existing issues
-- Create an issue for new features
-- Discuss approach with maintainers
-- Consider backward compatibility
-
-### 2. Development
-
-1. **Create a feature branch**
-
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-2. **Set up development environment**
-
-   ```bash
-   make setup
-   make setup-env
-   # Edit .env file
-   make install-local
-   ```
-
-3. **Make your changes**
-
-   - Follow code style guidelines
-   - Add appropriate error handling
-   - Update documentation
-   - Add Makefile targets if needed
-
-4. **Test thoroughly**
-
-   ```bash
-   make validate
-   make lint
-   make test-lifecycle
-   make test-docker
-   make test-git
-   ```
-
-### 3. Submission
-
-1. **Commit your changes**
-
-   ```bash
-   git add .
-   git commit -m "feat: add support for custom domains"
-   ```
-
-2. **Push to your fork**
-
-   ```bash
-   git push origin feature/your-feature-name
-   ```
-
-3. **Create a Pull Request**
-   - Use descriptive title
-   - Include detailed description
-   - Reference related issues
-   - Add testing instructions
-   - Include Makefile command examples
-
-### Commit Message Format
-
-Use conventional commits:
-
-```
-type(scope): description
-
-feat: add new feature
-fix: fix bug
-docs: update documentation
-test: add tests
-refactor: refactor code
-chore: update build tools
-```
-
-## 🛠️ Workspace Management
-
-### Understanding Active Workspace Issues
-
-DevPod prevents provider deletion when workspaces are using it:
-
-```bash
-$ devpod provider delete dokploy
-fatal cannot delete provider 'dokploy', because workspace 'my-project' is still using it
-```
-
-### Development Solutions
-
-The Makefile provides several solutions:
-
-```bash
-# Check for active workspaces before operations
-make reinstall         # Safe reinstall with workspace checking
-
-# Handle active workspaces automatically
-make force-reinstall   # Delete workspaces and reinstall
-make force-uninstall   # Delete workspaces and remove provider
-
-# Manual workspace management
-make cleanup-workspaces # Delete all workspaces for this provider
-make list-workspaces   # List all workspaces
-```
-
-### Testing Workspace Management
-
-```bash
-# Create test workspace
-devpod up test-workspace --provider dokploy-dev
-
-# Test workspace detection
-make reinstall  # Should detect and warn about active workspace
-
-# Test force operations
-make force-reinstall  # Should handle workspace cleanup automatically
-
-# Test cleanup
-make cleanup-workspaces  # Should clean up all provider workspaces
-```
-
-## 🚀 Release Process
+## 🔄 Release Process
 
 ### Version Management
 
 ```bash
-# Check current version
-make version-check
-
-# Bump version
-make version-bump-patch  # For bug fixes
-make version-bump-minor  # For new features
-make version-bump-major  # For breaking changes
-
-# Create release
-make tag-release        # Create and push git tag
-make release           # Full release process
+make version-check     # Check current version
+make version-bump-patch # Bump patch version
+make version-bump-minor # Bump minor version
+make version-bump-major # Bump major version
 ```
 
-### GitHub Releases
-
-The project follows DevPod community provider patterns:
-
-1. **Create a release** on GitHub with a version tag (e.g., `v0.1.0`)
-2. **Attach the `provider.yaml`** file to the release
-3. **DevPod will automatically** find and download the provider from the latest release
-
-### Release Checklist
-
-- [ ] Update version in `provider.yaml`
-- [ ] Test all Makefile commands
-- [ ] Run full test suite
-- [ ] Update documentation
-- [ ] Create GitHub release
-- [ ] Test installation from GitHub
-
-## 🐛 Reporting Issues
-
-### Bug Reports
-
-Include:
-
-- DevPod version (`devpod version`)
-- Dokploy version
-- Provider configuration (sanitized, no tokens)
-- Steps to reproduce
-- Expected vs actual behavior
-- Error messages and logs
-- Output of `make debug-env`
-
-### Feature Requests
-
-Include:
-
-- Use case description
-- Proposed solution
-- Alternative solutions considered
-- Additional context
-- Impact on existing functionality
-
-### Workspace Management Issues
-
-For workspace-related issues, include:
-
-- Output of `devpod list`
-- Output of `make list-workspaces`
-- Workspace creation/deletion logs
-- Provider logs (`make logs`)
-
-## 📚 Development Resources
-
-### Dokploy Resources
-
-- [Dokploy Documentation](https://docs.dokploy.com/)
-- [Dokploy GitHub](https://github.com/Dokploy/dokploy)
-- [Dokploy API Reference](https://docs.dokploy.com/docs/api)
-
-### DevPod Resources
-
-- [DevPod Documentation](https://devpod.sh/docs)
-- [Provider Development Guide](https://devpod.sh/docs/developing-providers/quickstart)
-- [DevPod GitHub](https://github.com/loft-sh/devpod)
-- [Community Providers](https://devpod.sh/docs/managing-providers/add-provider#community-providers)
-- Dokploy Swagger at `your-dokploy-url/swagger`
-
-### Community Provider Examples
-
-- [Hetzner Provider](https://github.com/mrsimonemms/devpod-provider-hetzner)
-- [Cloudbit Provider](https://github.com/cloudbit-ch/devpod-provider-cloudbit)
-- [Scaleway Provider](https://github.com/dirien/devpod-provider-scaleway)
-- [Flow Provider](https://github.com/flowswiss/devpod-provider-flow)
-
-## 🤝 Community Guidelines
-
-1. **Be respectful** and inclusive
-2. **Help others** learn and contribute
-3. **Share knowledge** and best practices
-4. **Provide constructive feedback**
-5. **Follow the code of conduct**
-6. **Test thoroughly** before submitting
-7. **Document your changes**
-
-## 🏆 Recognition
-
-Contributors will be recognized in:
-
-- README acknowledgments
-- Release notes
-- Project documentation
-- GitHub contributors list
-
-## 🔧 Development Tips
-
-### Cross-Platform Development
-
-The Makefile supports multiple platforms:
-
-- **macOS**: Uses Homebrew for tool installation
-- **Ubuntu/Debian**: Uses APT package manager
-- **RHEL/CentOS**: Uses YUM package manager
-- **Manual**: Provides fallback instructions
-
-### DevPod CLI Issues
-
-If you encounter DevPod CLI issues:
+### Building for Release
 
 ```bash
-# Check DevPod CLI availability
-make check-devpod
+# Build for all platforms
+make build-all
 
-# Install DevPod CLI separately
-make install-devpod-cli
+# Create release artifacts
+make release-artifacts
 
-# Add DevPod app to PATH (macOS)
-export PATH="/Applications/DevPod.app/Contents/MacOS:$PATH"
+# Tag and push release
+make tag-release
 ```
 
-### Environment Management
+### Binary Distribution
+
+The provider distributes binaries for multiple platforms:
+
+- Linux (amd64, arm64)
+- macOS (amd64, arm64)
+- Windows (amd64)
+
+Binaries are automatically downloaded by DevPod based on the `binaries` section in `provider.yaml`.
+
+## 🤝 Contributing Guidelines
+
+### Code Style
+
+- **Go Code**: Follow standard Go conventions, use `gofmt`
+- **YAML**: Use 2-space indentation
+- **Shell Scripts**: Use shellcheck for linting
+- **Documentation**: Keep README and CONTRIBUTING up to date
+
+### Pull Request Process
+
+1. **Fork** the repository
+2. **Create feature branch** from main
+3. **Build and test** with `make test-lifecycle`
+4. **Update documentation** if needed
+5. **Submit pull request** with clear description
+
+### Testing Requirements
+
+- All new features must include tests
+- Binary must build successfully for all platforms
+- Provider must pass `make test-lifecycle`
+- Docker Compose functionality must be tested
+
+### Documentation
+
+- Update README.md for user-facing changes
+- Update CONTRIBUTING.md for development changes
+- Document new configuration options
+- Include examples for new features
+
+## 🐛 Troubleshooting Development
+
+### Common Issues
+
+1. **Binary Build Failures**: Check Go version and dependencies
+2. **Docker Compose API Errors**: Verify Dokploy server connectivity
+3. **SSH Connection Issues**: Check port mapping and Docker Swarm propagation
+4. **Provider Installation Failures**: Use `make force-reinstall`
+
+### Debug Commands
 
 ```bash
-# Create environment for different scenarios
-cp .env .env.development
-cp .env .env.staging
+# Check provider status
+make show-config
 
-# Load specific environment
-source .env.development
-make configure-env
+# Debug binary directly
+./dist/dokploy-provider --help
+./dist/dokploy-provider init --verbose
+
+# Check Docker Compose services in Dokploy dashboard
+# Look for services in the configured project
+
+# Test SSH connectivity manually
+nc -z <host> <port>  # Test port availability
 ```
 
-### Debugging Provider Issues
-
-```bash
-# Show comprehensive debug information
-make debug-env
-
-# Validate provider configuration
-make validate
-
-# Check all tools
-make check-tools
-
-# Test with verbose output
-devpod up test-workspace --provider dokploy-dev --debug
-```
-
-Thank you for contributing to the Dokploy DevPod Provider! 🎉
-
-Your contributions help make development environments more accessible and powerful for developers worldwide.
+Remember: The provider uses **Docker Compose services** in Dokploy with **root SSH access** for maximum DevPod compatibility.
