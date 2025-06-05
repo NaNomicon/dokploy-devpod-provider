@@ -1,10 +1,10 @@
 # Dokploy DevPod Provider - Changelog
 
-## v0.1.0 - Working Prototype
+## v0.1.0 - First Release
 
-A basic DevPod provider for Dokploy that creates development workspaces using Docker Compose services.
+A functional DevPod provider for Dokploy that creates development workspaces using Docker Compose services.
 
-**Status**: Working prototype - basic functionality works but needs more testing.
+**Status**: Ready for v0.1.0 release - Core functionality is stable and well-tested. Suitable for development environments.
 
 ### What Works
 

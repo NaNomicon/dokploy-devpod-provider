@@ -8,7 +8,7 @@
 
 [![Go](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-prototype-orange.svg)](#current-status)
+[![Status](https://img.shields.io/badge/status-stable-green.svg)](#current-status)
 
 [Installation](#installation) • [Usage](#usage) • [Contributing](#contributing)
 
@@ -16,9 +16,9 @@
 
 ---
 
-## 🚧 Current Status
+## 🎉 Current Status
 
-**This is a working prototype** - basic functionality works but needs more testing and polish before wider use.
+**Ready for v0.1.0 release** - Core functionality is stable and well-tested. Suitable for development environments.
 
 ## ✨ What This Does
 

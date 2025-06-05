@@ -5,7 +5,7 @@
 PROVIDER_NAME := dokploy
 PROVIDER_FILE := provider.yaml
 PROVIDER_DEV_FILE := provider-dev.yaml
-VERSION := $(shell grep '^version:' $(PROVIDER_FILE) | sed 's/version: *//')
+VERSION := $(shell grep '^version:' $(PROVIDER_FILE) | sed 's/version: *v*//')
 GITHUB_REPO := NaNomicon/dokploy-devpod-provider
 TEST_WORKSPACE := test-workspace-$(shell date +%s)
 TEST_REPO := https://github.com/microsoft/vscode-remote-try-node.git
@@ -44,17 +44,25 @@ NC := \033[0m # No Color
 BINARY_NAME := dokploy-provider
 BUILD_DIR := dist
 LDFLAGS := -ldflags="-s -w"
+VERSIONED_BINARY_NAME := $(BINARY_NAME)-$(VERSION)
 
 .PHONY: build
 build: ## Build binary for current platform
-	@echo "$(BLUE)Building $(BINARY_NAME) for current platform...$(NC)"
+	@echo "$(BLUE)Building $(BINARY_NAME) v$(VERSION) for current platform...$(NC)"
 	@mkdir -p $(BUILD_DIR)
 	go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) .
 	@echo "$(GREEN)✓ Binary built: $(BUILD_DIR)/$(BINARY_NAME)$(NC)"
 
+.PHONY: build-versioned
+build-versioned: ## Build versioned binary for current platform
+	@echo "$(BLUE)Building $(VERSIONED_BINARY_NAME) for current platform...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	go build $(LDFLAGS) -o $(BUILD_DIR)/$(VERSIONED_BINARY_NAME) .
+	@echo "$(GREEN)✓ Versioned binary built: $(BUILD_DIR)/$(VERSIONED_BINARY_NAME)$(NC)"
+
 .PHONY: build-all
 build-all: ## Build binaries for all supported platforms
-	@echo "$(BLUE)Building $(BINARY_NAME) for all platforms...$(NC)"
+	@echo "$(BLUE)Building $(BINARY_NAME) v$(VERSION) for all platforms...$(NC)"
 	@mkdir -p $(BUILD_DIR)
 	@echo "$(YELLOW)Building for Linux AMD64...$(NC)"
 	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 .
@@ -67,6 +75,207 @@ build-all: ## Build binaries for all supported platforms
 	@echo "$(YELLOW)Building for Windows AMD64...$(NC)"
 	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe .
 	@echo "$(GREEN)✓ All binaries built in $(BUILD_DIR)/$(NC)"
+
+.PHONY: build-all-versioned
+build-all-versioned: ## Build versioned binaries for all supported platforms
+	@echo "$(BLUE)Building $(BINARY_NAME) v$(VERSION) for all platforms with version in filename...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	@echo "$(YELLOW)Building for Linux AMD64...$(NC)"
+	GOOS=linux GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-linux-amd64 .
+	@echo "$(YELLOW)Building for Linux ARM64...$(NC)"
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-linux-arm64 .
+	@echo "$(YELLOW)Building for macOS AMD64...$(NC)"
+	GOOS=darwin GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-amd64 .
+	@echo "$(YELLOW)Building for macOS ARM64...$(NC)"
+	GOOS=darwin GOARCH=arm64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-darwin-arm64 .
+	@echo "$(YELLOW)Building for Windows AMD64...$(NC)"
+	GOOS=windows GOARCH=amd64 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-$(VERSION)-windows-amd64.exe .
+	@echo "$(GREEN)✓ All versioned binaries built in $(BUILD_DIR)/$(NC)"
+
+.PHONY: checksums
+checksums: build-all ## Generate SHA256 checksums for all binaries
+	@echo "$(BLUE)Generating SHA256 checksums...$(NC)"
+	@cd $(BUILD_DIR) && \
+	for file in $(BINARY_NAME)-*; do \
+		if [ -f "$$file" ] && [[ "$$file" != *.sha256* ]]; then \
+			echo "$(YELLOW)Generating checksum for $$file...$(NC)"; \
+			if command -v sha256sum >/dev/null 2>&1; then \
+				sha256sum "$$file" > "$$file.sha256"; \
+			elif command -v shasum >/dev/null 2>&1; then \
+				shasum -a 256 "$$file" > "$$file.sha256"; \
+			else \
+				echo "$(RED)Error: No SHA256 tool available$(NC)"; \
+				exit 1; \
+			fi; \
+		fi; \
+	done
+	@echo "$(GREEN)✓ Checksums generated in $(BUILD_DIR)/$(NC)"
+
+.PHONY: checksums-versioned
+checksums-versioned: build-all-versioned ## Generate SHA256 checksums for all versioned binaries
+	@echo "$(BLUE)Generating SHA256 checksums for versioned binaries...$(NC)"
+	@cd $(BUILD_DIR) && \
+	for file in $(BINARY_NAME)-$(VERSION)-*; do \
+		if [ -f "$$file" ]; then \
+			echo "$(YELLOW)Generating checksum for $$file...$(NC)"; \
+			if command -v sha256sum >/dev/null 2>&1; then \
+				sha256sum "$$file" > "$$file.sha256"; \
+			elif command -v shasum >/dev/null 2>&1; then \
+				shasum -a 256 "$$file" > "$$file.sha256"; \
+			else \
+				echo "$(RED)Error: No SHA256 tool available$(NC)"; \
+				exit 1; \
+			fi; \
+		fi; \
+	done
+	@echo "$(GREEN)✓ Checksums generated for versioned binaries in $(BUILD_DIR)/$(NC)"
+
+.PHONY: update-provider-checksums
+update-provider-checksums: checksums ## Update provider.yaml with actual checksums
+	@echo "$(BLUE)Updating provider.yaml with generated checksums...$(NC)"
+	@if [ ! -f $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256 ]; then \
+		echo "$(RED)Error: Checksums not found. Run 'make checksums' first$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(YELLOW)Backing up provider.yaml...$(NC)"
+	@cp $(PROVIDER_FILE) $(PROVIDER_FILE).backup
+	@echo "$(YELLOW)Updating checksums in provider.yaml...$(NC)"
+	@# Linux AMD64
+	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256" ]; then \
+		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256"); \
+		echo "$(BLUE)Updating checksum for linux-amd64: $$checksum$(NC)"; \
+		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+			sed -i '' "s/PLACEHOLDER_CHECKSUM_LINUX_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+		else \
+			sed -i "s/PLACEHOLDER_CHECKSUM_LINUX_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+		fi; \
+	fi
+	@# Linux ARM64
+	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64.sha256" ]; then \
+		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64.sha256"); \
+		echo "$(BLUE)Updating checksum for linux-arm64: $$checksum$(NC)"; \
+		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+			sed -i '' "s/PLACEHOLDER_CHECKSUM_LINUX_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+		else \
+			sed -i "s/PLACEHOLDER_CHECKSUM_LINUX_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+		fi; \
+	fi
+	@# Darwin AMD64
+	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64.sha256" ]; then \
+		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64.sha256"); \
+		echo "$(BLUE)Updating checksum for darwin-amd64: $$checksum$(NC)"; \
+		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+			sed -i '' "s/PLACEHOLDER_CHECKSUM_DARWIN_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+		else \
+			sed -i "s/PLACEHOLDER_CHECKSUM_DARWIN_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+		fi; \
+	fi
+	@# Darwin ARM64
+	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64.sha256" ]; then \
+		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64.sha256"); \
+		echo "$(BLUE)Updating checksum for darwin-arm64: $$checksum$(NC)"; \
+		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+			sed -i '' "s/PLACEHOLDER_CHECKSUM_DARWIN_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+		else \
+			sed -i "s/PLACEHOLDER_CHECKSUM_DARWIN_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+		fi; \
+	fi
+	@# Windows AMD64
+	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe.sha256" ]; then \
+		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe.sha256"); \
+		echo "$(BLUE)Updating checksum for windows-amd64: $$checksum$(NC)"; \
+		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+			sed -i '' "s/PLACEHOLDER_CHECKSUM_WINDOWS_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+		else \
+			sed -i "s/PLACEHOLDER_CHECKSUM_WINDOWS_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+		fi; \
+	fi
+	@echo "$(GREEN)✓ provider.yaml updated with checksums$(NC)"
+	@echo "$(YELLOW)Backup saved as $(PROVIDER_FILE).backup$(NC)"
+
+.PHONY: show-checksums
+show-checksums: ## Display generated checksums
+	@echo "$(BLUE)Generated checksums:$(NC)"
+	@if [ -d $(BUILD_DIR) ]; then \
+		cd $(BUILD_DIR) && \
+		for file in *.sha256; do \
+			if [ -f "$$file" ]; then \
+				echo "$(YELLOW)$$file:$(NC)"; \
+				cat "$$file"; \
+				echo ""; \
+			fi; \
+		done; \
+	else \
+		echo "$(RED)No checksums found. Run 'make checksums' first$(NC)"; \
+	fi
+
+.PHONY: verify-checksums
+verify-checksums: ## Verify existing checksums against binaries
+	@echo "$(BLUE)Verifying checksums...$(NC)"
+	@cd $(BUILD_DIR) && \
+	failed=0; \
+	for file in *.sha256; do \
+		if [ -f "$$file" ] && [[ "$$file" != *.sha256.sha256* ]]; then \
+			echo "$(YELLOW)Verifying $$file...$(NC)"; \
+			if command -v sha256sum >/dev/null 2>&1; then \
+				if sha256sum -c "$$file"; then \
+					echo "$(GREEN)✓ $$file verified$(NC)"; \
+				else \
+					echo "$(RED)✗ $$file verification failed$(NC)"; \
+					failed=1; \
+				fi; \
+			elif command -v shasum >/dev/null 2>&1; then \
+				if shasum -a 256 -c "$$file"; then \
+					echo "$(GREEN)✓ $$file verified$(NC)"; \
+				else \
+					echo "$(RED)✗ $$file verification failed$(NC)"; \
+					failed=1; \
+				fi; \
+			fi; \
+		fi; \
+	done; \
+	if [ $$failed -eq 0 ]; then \
+		echo "$(GREEN)✓ All checksums verified$(NC)"; \
+	else \
+		echo "$(RED)Some checksums failed verification$(NC)"; \
+		exit 1; \
+	fi
+
+.PHONY: release-prepare
+release-prepare: validate version-check build-all checksums update-provider-checksums ## Prepare everything for release
+	@echo "$(BLUE)Preparing release v$(VERSION)...$(NC)"
+	@echo "$(GREEN)✓ Release v$(VERSION) prepared successfully!$(NC)"
+	@echo ""
+	@echo "$(BLUE)Release artifacts:$(NC)"
+	@ls -la $(BUILD_DIR)/
+	@echo ""
+	@echo "$(BLUE)Next steps:$(NC)"
+	@echo "  1. Review the updated provider.yaml"
+	@echo "  2. Test the provider: make test-docker"
+	@echo "  3. Create release: make tag-release"
+	@echo "  4. Upload binaries to GitHub releases"
+
+.PHONY: release-clean
+release-clean: ## Clean release artifacts but keep backups
+	@echo "$(YELLOW)Cleaning release artifacts...$(NC)"
+	@if [ -d $(BUILD_DIR) ]; then \
+		rm -f $(BUILD_DIR)/*.sha256; \
+		echo "$(GREEN)✓ Checksum files removed$(NC)"; \
+	fi
+	@if [ -f $(PROVIDER_FILE).backup ]; then \
+		echo "$(YELLOW)provider.yaml backup preserved: $(PROVIDER_FILE).backup$(NC)"; \
+	fi
+
+.PHONY: restore-provider
+restore-provider: ## Restore provider.yaml from backup
+	@echo "$(YELLOW)Restoring provider.yaml from backup...$(NC)"
+	@if [ -f $(PROVIDER_FILE).backup ]; then \
+		cp $(PROVIDER_FILE).backup $(PROVIDER_FILE); \
+		echo "$(GREEN)✓ provider.yaml restored from backup$(NC)"; \
+	else \
+		echo "$(RED)No backup found: $(PROVIDER_FILE).backup$(NC)"; \
+		exit 1; \
+	fi
 
 .PHONY: clean
 clean: ## Clean build artifacts
@@ -645,10 +854,15 @@ tag-release: validate version-check ## Create and push git tag for release
 	@echo "$(GREEN)Release tag v$(VERSION) created and pushed$(NC)"
 
 .PHONY: release
-release: validate test-docker tag-release ## Create a full release (validate, test, tag)
+release: release-prepare test-docker tag-release ## Create a full release (prepare, test, tag)
 	@echo "$(GREEN)Release v$(VERSION) completed!$(NC)"
 	@echo "$(BLUE)Users can now install with:$(NC)"
 	@echo "devpod provider add $(GITHUB_REPO)"
+	@echo ""
+	@echo "$(YELLOW)Don't forget to:$(NC)"
+	@echo "  1. Upload binaries from $(BUILD_DIR)/ to GitHub releases"
+	@echo "  2. Update the release description"
+	@echo "  3. Mark as latest release"
 
 ##@ Utilities
 
@@ -704,7 +918,8 @@ help: ## Display this help
 	@echo "  3. Edit .env file with your Dokploy settings"
 	@echo "  4. make configure-env     # Configure provider from .env file"
 	@echo "  5. make test-docker       # Test with a Docker workspace"
-	@echo "  6. make release           # Create a release when ready"
+	@echo "  6. make release-prepare   # Prepare release (builds + checksums)"
+	@echo "  7. make release           # Create a release when ready"
 	@echo ""
 	@echo "$(BLUE)Alternative Configuration:$(NC)"
 	@echo "  make configure            # Interactive configuration (instead of steps 2-4)"
@@ -718,6 +933,15 @@ help: ## Display this help
 	@echo "  make setup                # Auto-install all required tools"
 	@echo "  make check-tools          # Check which tools are installed"
 	@echo "  brew install yq jq shellcheck  # Manual install (macOS)"
+	@echo ""
+	@echo "$(BLUE)Release Management:$(NC)"
+	@echo "  make build-all            # Build binaries for all platforms"
+	@echo "  make checksums            # Generate SHA256 checksums"
+	@echo "  make show-checksums       # Display generated checksums"
+	@echo "  make verify-checksums     # Verify checksums against binaries"
+	@echo "  make release-prepare      # Complete release preparation"
+	@echo "  make version-bump-patch   # Bump patch version (0.1.0 -> 0.1.1)"
+	@echo "  make restore-provider     # Restore provider.yaml from backup"
 	@echo ""
 	@echo "$(BLUE)GitHub Installation:$(NC)"
 	@echo "  devpod provider add $(GITHUB_REPO)"
