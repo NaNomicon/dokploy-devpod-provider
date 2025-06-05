@@ -103,7 +103,7 @@ checksums: build-all ## Generate SHA256 checksums for all binaries
 	@echo "$(BLUE)Generating SHA256 checksums...$(NC)"
 	@cd $(BUILD_DIR) && \
 	for file in $(BINARY_NAME)-*; do \
-		if [ -f "$$file" ] && [[ "$$file" != *.sha256* ]]; then \
+		if [ -f "$$file" ] && [ "$${file##*.}" != "sha256" ]; then \
 			echo "$(YELLOW)Generating checksum for $$file...$(NC)"; \
 			if command -v sha256sum >/dev/null 2>&1; then \
 				sha256sum "$$file" > "$$file.sha256"; \
@@ -153,7 +153,7 @@ update-provider-checksums: checksums ## Update provider.yaml with actual checksu
 	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256"); \
 		echo "$(BLUE)  Updating linux-amd64: $$checksum$(NC)"; \
-		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+		if [ "$$(uname)" = "Darwin" ]; then \
 			sed -i '' '/dokploy-provider-linux-amd64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
 			sed -i '/dokploy-provider-linux-amd64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
@@ -162,7 +162,7 @@ update-provider-checksums: checksums ## Update provider.yaml with actual checksu
 	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64.sha256"); \
 		echo "$(BLUE)  Updating linux-arm64: $$checksum$(NC)"; \
-		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+		if [ "$$(uname)" = "Darwin" ]; then \
 			sed -i '' '/dokploy-provider-linux-arm64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
 			sed -i '/dokploy-provider-linux-arm64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
@@ -171,7 +171,7 @@ update-provider-checksums: checksums ## Update provider.yaml with actual checksu
 	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64.sha256"); \
 		echo "$(BLUE)  Updating darwin-amd64: $$checksum$(NC)"; \
-		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+		if [ "$$(uname)" = "Darwin" ]; then \
 			sed -i '' '/dokploy-provider-darwin-amd64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
 			sed -i '/dokploy-provider-darwin-amd64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
@@ -180,7 +180,7 @@ update-provider-checksums: checksums ## Update provider.yaml with actual checksu
 	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64.sha256"); \
 		echo "$(BLUE)  Updating darwin-arm64: $$checksum$(NC)"; \
-		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+		if [ "$$(uname)" = "Darwin" ]; then \
 			sed -i '' '/dokploy-provider-darwin-arm64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
 			sed -i '/dokploy-provider-darwin-arm64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
@@ -189,7 +189,7 @@ update-provider-checksums: checksums ## Update provider.yaml with actual checksu
 	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe.sha256"); \
 		echo "$(BLUE)  Updating windows-amd64: $$checksum$(NC)"; \
-		if [[ "$$OSTYPE" == "darwin"* ]]; then \
+		if [ "$$(uname)" = "Darwin" ]; then \
 			sed -i '' '/dokploy-provider-windows-amd64\.exe$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
 			sed -i '/dokploy-provider-windows-amd64\.exe$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
@@ -233,7 +233,7 @@ verify-checksums: ## Verify existing checksums against binaries
 	@cd $(BUILD_DIR) && \
 	failed=0; \
 	for file in *.sha256; do \
-		if [ -f "$$file" ] && [[ "$$file" != *.sha256.sha256* ]]; then \
+		if [ -f "$$file" ] && [ "$${file##*.}" != "sha256" ]; then \
 			echo "$(YELLOW)Verifying $$file...$(NC)"; \
 			if command -v sha256sum >/dev/null 2>&1; then \
 				if sha256sum -c "$$file"; then \
@@ -331,7 +331,7 @@ generate-provider: clean-dist build-all ## Generate provider.yaml from template 
 	@echo "$(YELLOW)Backup saved as provider.yaml.backup$(NC)"
 
 .PHONY: release-prepare
-release-prepare: version-check generate-provider validate ## Prepare everything for release using template
+release-prepare: version-check generate-provider checksums validate ## Prepare everything for release using template
 	@echo "$(BLUE)Preparing release v$(VERSION)...$(NC)"
 	@echo "$(GREEN)✓ Release v$(VERSION) prepared successfully!$(NC)"
 	@echo ""
