@@ -6,13 +6,15 @@
 
 **A DevPod provider for [Dokploy](https://dokploy.com/) that creates development workspaces using Docker Compose services.**
 
+[![Version](https://img.shields.io/github/v/release/NaNomicon/dokploy-devpod-provider?label=version)](https://github.com/NaNomicon/dokploy-devpod-provider/releases/latest)
+[![Release](https://github.com/NaNomicon/dokploy-devpod-provider/actions/workflows/release.yml/badge.svg)](https://github.com/NaNomicon/dokploy-devpod-provider/actions/workflows/release.yml)
+
 [![Go](https://img.shields.io/badge/Go-1.22+-blue.svg)](https://golang.org)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-stable-green.svg)](#current-status)
 [![DevPod](https://img.shields.io/badge/DevPod-v0.6.15-blue.svg)](https://github.com/loft-sh/devpod)
 [![Dokploy](https://img.shields.io/badge/Dokploy-v0.22.7-green.svg)](https://github.com/Dokploy/dokploy)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-[Installation](#installation) • [Usage](#usage) • [Contributing](#contributing)
+[Installation](#-installation) • [Contributing](#contributing)
 
 [![Open in DevPod!](https://devpod.sh/assets/open-in-devpod.svg)](https://devpod.sh/open#https://github.com/NaNomicon/dokploy-devpod-provider)
 

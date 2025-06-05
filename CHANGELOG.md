@@ -1,68 +1,27 @@
 # Dokploy DevPod Provider - Changelog
 
-## v0.1.2 - Template-based Release System
+## v0.1.2 - Release Process Improvements
 
-### 🚀 Major Features
+### Changes
 
-- **Template-based Release System**: Implemented `gomplate`-based template system for generating `provider.yaml`
+- Added template system for generating `provider.yaml` with automatic checksums
+- Fixed GitHub Actions build failures due to missing tools
+- Fixed shell compatibility issues for Ubuntu/Linux builds
+- Updated workflow to use Makefile targets instead of duplicating logic
 
-  - Automatic checksum calculation from built binaries
-  - Environment variable-driven template rendering
-  - Eliminates manual checksum updates and human errors
+### Bug Fixes
 
-- **Enhanced Version Management**: Switched to Git tag-based versioning
-  - Version automatically detected from Git tags (`git describe --tags`)
-  - Proper separation of version number (`0.1.2`) and tag (`v0.1.2`) in templates
-  - Eliminates circular dependency between Makefile and provider.yaml
+- Fixed missing `gox` and `gomplate` installation on Ubuntu systems
+- Fixed bash-specific syntax that broke on `/bin/sh`
+- Fixed template version variables to work with Git tags
 
-### ✨ Release Workflow Improvements
+### Development
 
-- **Simplified CI/CD**: GitHub Actions workflow now uses Makefile targets
+- Added `make version-bump-*` commands for version management
+- Added `make generate-provider` to create provider.yaml from template
+- Updated GitHub Actions to use `make release-prepare`
 
-  - DRY principle: no duplication between local and CI builds
-  - Consistent build process via `make release-prepare`
-  - Automatic tool installation via `make setup`
-
-- **Cross-compilation**: Added `gox` for parallel binary building
-
-  - Faster builds across all supported platforms
-  - Consistent binary naming and output structure
-
-- **Version Bumping**: Added semantic version bump targets
-  - `make version-bump-patch` - Bump patch version and create Git tag
-  - `make version-bump-minor` - Bump minor version and create Git tag
-  - `make version-bump-major` - Bump major version and create Git tag
-
-### 🔧 Development Experience
-
-- **Enhanced Makefile**: Comprehensive release management targets
-
-  - `make generate-provider` - Generate provider.yaml from template
-  - `make release-prepare` - Complete release preparation pipeline
-  - `make validate-provider-checksums` - Verify checksum accuracy
-  - `make restore-provider` - Restore provider.yaml from backup
-
-- **Template Architecture**: Clean separation of concerns
-  - Template file: `hack/provider.yaml.tpl`
-  - Version variables: `VERSION_NUMBER` and `VERSION_TAG`
-  - Automatic binary checksum injection via `file.Read | crypto.SHA256`
-
-### 🐛 Bug Fixes
-
-- **Checksum Consistency**: Eliminated checksum mismatches between local and CI builds
-- **Version Handling**: Fixed template version variable usage for proper Git tag integration
-- **Release Artifacts**: Proper binary and checksum file organization
-
-### 📚 Documentation
-
-- **Release Process**: Updated documentation for new template-based workflow
-- **Acknowledgments**: Added credit to STACKIT DevPod Provider for template inspiration
-- **Version Management**: Clarified Git tag-based versioning approach
-
-### 🔄 Breaking Changes
-
-- **Version Detection**: Now requires Git tags for version detection (no longer uses provider.yaml)
-- **Build Process**: `make generate-provider` must be run to update provider.yaml after version changes
+This release focuses on fixing the build and release process. The provider functionality remains the same.
 
 ---
 
