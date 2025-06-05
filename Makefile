@@ -139,72 +139,84 @@ update-provider-checksums: checksums ## Update provider.yaml with actual checksu
 	fi
 	@echo "$(YELLOW)Backing up provider.yaml...$(NC)"
 	@cp $(PROVIDER_FILE) $(PROVIDER_FILE).backup
-	@echo "$(YELLOW)Updating checksums in provider.yaml...$(NC)"
-	@# Linux AMD64
-	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256" ]; then \
+	@echo "$(YELLOW)Updating checksums in provider.yaml using line-by-line approach...$(NC)"
+	@# Process each binary checksum
+	@temp_file=$(BUILD_DIR)/provider_temp.yaml; \
+	cp $(PROVIDER_FILE) $$temp_file; \
+	echo "$(BLUE)Processing checksums...$(NC)"; \
+	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256"); \
-		echo "$(BLUE)Updating checksum for linux-amd64: $$checksum$(NC)"; \
+		echo "$(BLUE)  Updating linux-amd64: $$checksum$(NC)"; \
 		if [[ "$$OSTYPE" == "darwin"* ]]; then \
-			sed -i '' "s/PLACEHOLDER_CHECKSUM_LINUX_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '' '/dokploy-provider-linux-amd64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
-			sed -i "s/PLACEHOLDER_CHECKSUM_LINUX_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '/dokploy-provider-linux-amd64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		fi; \
-	fi
-	@# Linux ARM64
-	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64.sha256" ]; then \
+	fi; \
+	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64.sha256"); \
-		echo "$(BLUE)Updating checksum for linux-arm64: $$checksum$(NC)"; \
+		echo "$(BLUE)  Updating linux-arm64: $$checksum$(NC)"; \
 		if [[ "$$OSTYPE" == "darwin"* ]]; then \
-			sed -i '' "s/PLACEHOLDER_CHECKSUM_LINUX_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '' '/dokploy-provider-linux-arm64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
-			sed -i "s/PLACEHOLDER_CHECKSUM_LINUX_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '/dokploy-provider-linux-arm64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		fi; \
-	fi
-	@# Darwin AMD64
-	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64.sha256" ]; then \
+	fi; \
+	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-darwin-amd64.sha256"); \
-		echo "$(BLUE)Updating checksum for darwin-amd64: $$checksum$(NC)"; \
+		echo "$(BLUE)  Updating darwin-amd64: $$checksum$(NC)"; \
 		if [[ "$$OSTYPE" == "darwin"* ]]; then \
-			sed -i '' "s/PLACEHOLDER_CHECKSUM_DARWIN_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '' '/dokploy-provider-darwin-amd64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
-			sed -i "s/PLACEHOLDER_CHECKSUM_DARWIN_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '/dokploy-provider-darwin-amd64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		fi; \
-	fi
-	@# Darwin ARM64
-	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64.sha256" ]; then \
+	fi; \
+	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64.sha256"); \
-		echo "$(BLUE)Updating checksum for darwin-arm64: $$checksum$(NC)"; \
+		echo "$(BLUE)  Updating darwin-arm64: $$checksum$(NC)"; \
 		if [[ "$$OSTYPE" == "darwin"* ]]; then \
-			sed -i '' "s/PLACEHOLDER_CHECKSUM_DARWIN_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '' '/dokploy-provider-darwin-arm64$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
-			sed -i "s/PLACEHOLDER_CHECKSUM_DARWIN_ARM64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '/dokploy-provider-darwin-arm64$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		fi; \
-	fi
-	@# Windows AMD64
-	@if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe.sha256" ]; then \
+	fi; \
+	if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe.sha256" ]; then \
 		checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe.sha256"); \
-		echo "$(BLUE)Updating checksum for windows-amd64: $$checksum$(NC)"; \
+		echo "$(BLUE)  Updating windows-amd64: $$checksum$(NC)"; \
 		if [[ "$$OSTYPE" == "darwin"* ]]; then \
-			sed -i '' "s/PLACEHOLDER_CHECKSUM_WINDOWS_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '' '/dokploy-provider-windows-amd64\.exe$$/{ n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		else \
-			sed -i "s/PLACEHOLDER_CHECKSUM_WINDOWS_AMD64/$$checksum/g" $(PROVIDER_FILE); \
+			sed -i '/dokploy-provider-windows-amd64\.exe$$/ { n; s/checksum: "[^"]*"/checksum: "'$$checksum'"/; }' $$temp_file; \
 		fi; \
-	fi
+	fi; \
+	mv $$temp_file $(PROVIDER_FILE)
 	@echo "$(GREEN)✓ provider.yaml updated with checksums$(NC)"
 	@echo "$(YELLOW)Backup saved as $(PROVIDER_FILE).backup$(NC)"
 
 .PHONY: show-checksums
-show-checksums: ## Display generated checksums
-	@echo "$(BLUE)Generated checksums:$(NC)"
+show-checksums: ## Display generated checksums with uniqueness validation
+	@echo "$(BLUE)Generated checksums for each platform/architecture:$(NC)"
 	@if [ -d $(BUILD_DIR) ]; then \
 		cd $(BUILD_DIR) && \
+		echo "$(YELLOW)Platform-specific checksums (each should be unique):$(NC)"; \
+		echo ""; \
 		for file in *.sha256; do \
 			if [ -f "$$file" ]; then \
-				echo "$(YELLOW)$$file:$(NC)"; \
-				cat "$$file"; \
-				echo ""; \
+				platform=$$(echo "$$file" | sed 's/$(BINARY_NAME)-//; s/\.sha256//'); \
+				checksum=$$(cut -d' ' -f1 "$$file"); \
+				printf "$(GREEN)%-20s$(NC) %s\n" "$$platform:" "$$checksum"; \
 			fi; \
 		done; \
+		echo ""; \
+		echo "$(BLUE)Uniqueness validation:$(NC)"; \
+		unique_count=$$(for file in *.sha256; do [ -f "$$file" ] && cut -d' ' -f1 "$$file"; done | sort -u | wc -l | tr -d ' '); \
+		total_count=$$(for file in *.sha256; do [ -f "$$file" ] && echo "1"; done | wc -l | tr -d ' '); \
+		if [ "$$unique_count" = "$$total_count" ]; then \
+			echo "$(GREEN)✓ All $$total_count checksums are unique (correct)$(NC)"; \
+		else \
+			echo "$(RED)✗ Only $$unique_count unique checksums out of $$total_count total (ERROR!)$(NC)"; \
+			echo "$(YELLOW)Duplicate checksums detected - this indicates a build problem$(NC)"; \
+		fi; \
 	else \
 		echo "$(RED)No checksums found. Run 'make checksums' first$(NC)"; \
 	fi
@@ -241,8 +253,55 @@ verify-checksums: ## Verify existing checksums against binaries
 		exit 1; \
 	fi
 
+.PHONY: validate-provider-checksums
+validate-provider-checksums: checksums ## Validate that provider.yaml has correct and unique checksums
+	@echo "$(BLUE)Validating provider.yaml checksums against generated checksums...$(NC)"
+	@if [ ! -d $(BUILD_DIR) ] || [ ! -f $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64.sha256 ]; then \
+		echo "$(RED)Error: Generated checksums not found. Run 'make checksums' first$(NC)"; \
+		exit 1; \
+	fi
+	@failed=0; \
+	echo "$(YELLOW)Checking each platform checksum:$(NC)"; \
+	for platform in "linux-amd64" "linux-arm64" "darwin-amd64" "darwin-arm64" "windows-amd64.exe"; do \
+		if [ -f "$(BUILD_DIR)/$(BINARY_NAME)-$$platform.sha256" ]; then \
+			generated_checksum=$$(cut -d' ' -f1 "$(BUILD_DIR)/$(BINARY_NAME)-$$platform.sha256"); \
+			provider_checksum=$$(grep -A1 "dokploy-provider-$$platform" $(PROVIDER_FILE) | grep "checksum:" | sed 's/.*checksum: *"\([^"]*\)".*/\1/'); \
+			if [ "$$generated_checksum" = "$$provider_checksum" ]; then \
+				echo "$(GREEN)✓ $$platform: checksums match$(NC)"; \
+			else \
+				echo "$(RED)✗ $$platform: checksum mismatch$(NC)"; \
+				echo "  Generated: $$generated_checksum"; \
+				echo "  Provider:  $$provider_checksum"; \
+				failed=1; \
+			fi; \
+		fi; \
+	done; \
+	echo ""; \
+	echo "$(BLUE)Checking checksum uniqueness in provider.yaml:$(NC)"; \
+	provider_checksums=$$(grep "checksum:" $(PROVIDER_FILE) | sed 's/.*checksum: *"\([^"]*\)".*/\1/' | sort); \
+	unique_provider_checksums=$$(echo "$$provider_checksums" | sort -u); \
+	provider_count=$$(echo "$$provider_checksums" | wc -l | tr -d ' '); \
+	unique_count=$$(echo "$$unique_provider_checksums" | wc -l | tr -d ' '); \
+	if [ "$$provider_count" = "$$unique_count" ]; then \
+		echo "$(GREEN)✓ All $$provider_count checksums in provider.yaml are unique$(NC)"; \
+	else \
+		echo "$(RED)✗ Only $$unique_count unique checksums out of $$provider_count total in provider.yaml$(NC)"; \
+		echo "$(YELLOW)Duplicate checksums found:$(NC)"; \
+		echo "$$provider_checksums" | sort | uniq -d; \
+		failed=1; \
+	fi; \
+	if [ $$failed -eq 0 ]; then \
+		echo ""; \
+		echo "$(GREEN)✓ All checksums are valid and unique$(NC)"; \
+	else \
+		echo ""; \
+		echo "$(RED)✗ Checksum validation failed$(NC)"; \
+		echo "$(YELLOW)Run 'make update-provider-checksums' to fix$(NC)"; \
+		exit 1; \
+	fi
+
 .PHONY: release-prepare
-release-prepare: validate version-check build-all checksums update-provider-checksums ## Prepare everything for release
+release-prepare: validate version-check build-all checksums update-provider-checksums validate-provider-checksums ## Prepare everything for release
 	@echo "$(BLUE)Preparing release v$(VERSION)...$(NC)"
 	@echo "$(GREEN)✓ Release v$(VERSION) prepared successfully!$(NC)"
 	@echo ""
@@ -849,9 +908,7 @@ tag-release: validate version-check ## Create and push git tag for release
 	git add $(PROVIDER_FILE)
 	git commit -m "Release v$(VERSION)" || true
 	git tag -a "v$(VERSION)" -m "Release v$(VERSION)"
-	git push origin main
-	git push origin "v$(VERSION)"
-	@echo "$(GREEN)Release tag v$(VERSION) created and pushed$(NC)"
+	@echo "$(GREEN)Release tag v$(VERSION) created$(NC)"
 
 .PHONY: release
 release: release-prepare test-docker tag-release ## Create a full release (prepare, test, tag)
@@ -863,6 +920,7 @@ release: release-prepare test-docker tag-release ## Create a full release (prepa
 	@echo "  1. Upload binaries from $(BUILD_DIR)/ to GitHub releases"
 	@echo "  2. Update the release description"
 	@echo "  3. Mark as latest release"
+	@echo "  4. Push the tag to GitHub: git push origin v$(VERSION)"
 
 ##@ Utilities
 

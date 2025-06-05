@@ -46,23 +46,23 @@ binaries:
     - os: linux
       arch: amd64
       path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-linux-amd64
-      checksum: "sha256:70e87ac6d3e1b92fef5a69a33392b5b89c73b1465ff88b8046c40eb791651282"
+      checksum: "e0a623324ea2a8446cb659fd0bfc24caf312fd93cf6017b791881631014563b6"
     - os: linux
       arch: arm64
       path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-linux-arm64
-      checksum: "sha256:2208b5679dad10aa0c60189bd27fc9630765145952dce3a27ff7451269cca7db"
+      checksum: "351aa5527fb27f2295e0a5919081f370b01947c4d703e94d480b6df3a393776a"
     - os: darwin
       arch: amd64
       path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-darwin-amd64
-      checksum: "sha256:fb43ef96d40136ae5ce67c5d5672877609e633bfbcb2584657fc5c45d016e176"
+      checksum: "72005835e5c0504d0abcb2705844b80f1da20c96315d3be9d72532f927b8f5f2"
     - os: darwin
       arch: arm64
       path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-darwin-arm64
-      checksum: "sha256:7e8d3003f0f41eb000f64f48e30932c678da904a6aa4421cb38ce785cf064ab1"
+      checksum: "d4fa212a239b4b768352466471ee7d3cb9d5eb269c3580292a61372456e84727"
     - os: windows
       arch: amd64
       path: https://github.com/NaNomicon/dokploy-devpod-provider/releases/download/v0.1.0/dokploy-provider-windows-amd64.exe
-      checksum: "sha256:c9f5dc41589b58e54fec8a18f0341c479f617ebfb867bf624b37cf54a1fa3056"
+      checksum: "271ff59c359ff0fa7a3eada74cc494f1157c134012da17fd6eaee967580e7cd2"
 
 exec:
   # Initialize the provider (test API connection)
