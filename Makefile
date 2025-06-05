@@ -344,6 +344,7 @@ release-prepare: validate version-check generate-provider ## Prepare everything 
 	@echo "  3. Create release: make tag-release"
 	@echo "  4. Upload binaries to GitHub releases"
 	@echo "  5. Update CHANGELOG.md"
+	@echo "  5. Update CHANGELOG.md"
 
 .PHONY: release-clean
 release-clean: ## Clean release artifacts but keep backups
